@@ -8,7 +8,6 @@ import sys
 import os
 import json
 import pprint
-from typing import Any, Dict, List
 
 try:
     import extract_msg
