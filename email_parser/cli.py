@@ -5,6 +5,9 @@
 import argparse
 import json
 from pathlib import Path
+import logging
+
+from . import create_email_parser
 
 
 def main() -> None:

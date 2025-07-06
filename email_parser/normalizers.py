@@ -5,6 +5,8 @@
 import logging
 from typing import Union, Optional, Any
 
+from .interfaces import ContentNormalizer
+
 
 class BaseContentNormalizer(ContentNormalizer):
     """Base normalizer with common functionality."""

@@ -5,6 +5,9 @@
 from typing import List, Dict, Any, Union, Optional
 import logging
 
+from .interfaces import EmailFormatParser
+from .structure_extractor import EmailStructureExtractor
+
 
 class EmailParser:
     """Main email parser that delegates to format-specific parsers."""

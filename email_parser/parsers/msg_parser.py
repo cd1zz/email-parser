@@ -6,10 +6,14 @@ import tempfile
 import os
 import base64
 import io
+import logging
 from typing import Optional, Tuple, List
 from email.message import Message
 import email.parser
 import email.policy
+
+from ..interfaces import EmailFormatParser, ContentNormalizer
+from ..converters import HtmlToTextConverter
 
 try:
     import extract_msg
