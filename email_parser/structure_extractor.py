@@ -478,45 +478,26 @@ class EmailStructureExtractor:
         return None
 
     def _extract_urls_streamlined(self, email_obj: Dict[str, Any]) -> List[str]:
-        """Extract URLs for streamlined format - final destinations only."""
-        try:
-            if self.url_analyzer:
-                # Create temporary structure for URL analysis
-                temp_structure = {
-                    'body': email_obj['body'],
-                    'headers': email_obj['headers'],
-                    'attachments': email_obj['attachments'],
-                    'nested_emails': email_obj['nested_emails']
-                }
-                
-                analysis = self.url_analyzer.analyze_email_urls(temp_structure)
-                
-                # Get final destination URLs (decoded/expanded)
-                final_urls = []
-                for processed_url in analysis.processed_urls:
-                    # Use expanded URL if available (for shortened links)
-                    if processed_url.expanded_url:
-                        final_urls.append(processed_url.expanded_url)
-                    # Use decoded URL if available (for wrapped links)  
-                    elif processed_url.decoded_url:
-                        final_urls.append(processed_url.decoded_url)
-                    # Otherwise use the final URL
-                    else:
-                        final_urls.append(processed_url.final_url)
-                
-                # Remove duplicates while preserving order
-                seen = set()
-                unique_urls = []
-                for url in final_urls:
-                    if url not in seen:
-                        seen.add(url)
-                        unique_urls.append(url)
-                
-                return unique_urls
-        except Exception as e:
-            self.logger.error(f"Error extracting URLs: {e}")
-        
-        return []
+            """Extract URLs for streamlined format - final destinations only."""
+            try:
+                if self.url_analyzer:
+                    # Create temporary structure for URL analysis
+                    temp_structure = {
+                        'body': email_obj['body'],
+                        'headers': email_obj['headers'],
+                        'attachments': email_obj['attachments'],
+                        'nested_emails': email_obj['nested_emails']
+                    }
+                    
+                    analysis = self.url_analyzer.analyze_email_urls(temp_structure)
+                    
+                    # Return the final URLs list from the analysis
+                    return analysis.final_urls
+                    
+            except Exception as e:
+                self.logger.error(f"Error extracting URLs: {e}")
+            
+            return []
 
     def _generate_summary(self, email_obj: Dict[str, Any]) -> Dict[str, Any]:
         """Generate summary section."""

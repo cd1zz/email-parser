@@ -1,5 +1,5 @@
 # ============================================================================
-# email_parser/extractors/url_extractor.py - CONSERVATIVE VERSION
+# email_parser/extractors/url_extractor.py - FIXED VERSION
 # ============================================================================
 """Conservative URL extraction - only actual clickable URLs from email body."""
 
@@ -175,6 +175,58 @@ class UrlExtractor:
         
         return url
     
+    def _normalize_for_deduplication(self, url: str) -> str:
+        """Normalize URL for deduplication purposes."""
+        if not url:
+            return url
+        
+        try:
+            # Convert to lowercase for case-insensitive comparison
+            normalized = url.lower().strip()
+            
+            # Handle www vs non-www variants
+            if normalized.startswith('www.'):
+                # Convert www.example.com to http://www.example.com for parsing
+                temp_url = 'http://' + normalized
+            elif normalized.startswith(('http://', 'https://', 'ftp://')):
+                temp_url = normalized
+            else:
+                return normalized  # Return as-is if we can't parse it
+            
+            # Parse the URL
+            parsed = urllib.parse.urlparse(temp_url)
+            
+            # Normalize the domain (remove www, convert to lowercase)
+            domain = parsed.netloc.lower()
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            
+            # Remove default ports
+            if ':80' in domain and parsed.scheme == 'http':
+                domain = domain.replace(':80', '')
+            elif ':443' in domain and parsed.scheme == 'https':
+                domain = domain.replace(':443', '')
+            
+            # Normalize path (remove trailing slash if it's just "/")
+            path = parsed.path
+            if path == '/':
+                path = ''
+            
+            # Rebuild normalized URL for comparison
+            # Use http as default scheme for comparison (treats http/https as same)
+            normalized_url = f"http://{domain}{path}"
+            if parsed.query:
+                normalized_url += f"?{parsed.query}"
+            if parsed.fragment:
+                normalized_url += f"#{parsed.fragment}"
+            
+            return normalized_url
+            
+        except Exception as e:
+            self.logger.debug(f"Error normalizing URL for deduplication {url}: {e}")
+            # Fall back to simple lowercase comparison
+            return url.lower().strip()
+    
     def _extract_domain(self, url: str) -> Optional[str]:
         """Extract domain from URL."""
         try:
@@ -244,58 +296,6 @@ class UrlExtractor:
         domain = self._extract_domain(url)
         if not domain:
             return False
-    
-    def _normalize_for_deduplication(self, url: str) -> str:
-        """Normalize URL for deduplication purposes."""
-        if not url:
-            return url
-        
-        try:
-            # Convert to lowercase for case-insensitive comparison
-            normalized = url.lower().strip()
-            
-            # Handle www vs non-www variants
-            if normalized.startswith('www.'):
-                # Convert www.example.com to http://www.example.com for parsing
-                temp_url = 'http://' + normalized
-            elif normalized.startswith(('http://', 'https://', 'ftp://')):
-                temp_url = normalized
-            else:
-                return normalized  # Return as-is if we can't parse it
-            
-            # Parse the URL
-            parsed = urllib.parse.urlparse(temp_url)
-            
-            # Normalize the domain (remove www, convert to lowercase)
-            domain = parsed.netloc.lower()
-            if domain.startswith('www.'):
-                domain = domain[4:]
-            
-            # Remove default ports
-            if ':80' in domain and parsed.scheme == 'http':
-                domain = domain.replace(':80', '')
-            elif ':443' in domain and parsed.scheme == 'https':
-                domain = domain.replace(':443', '')
-            
-            # Normalize path (remove trailing slash if it's just "/")
-            path = parsed.path
-            if path == '/':
-                path = ''
-            
-            # Rebuild normalized URL for comparison
-            # Use http as default scheme for comparison (treats http/https as same)
-            normalized_url = f"http://{domain}{path}"
-            if parsed.query:
-                normalized_url += f"?{parsed.query}"
-            if parsed.fragment:
-                normalized_url += f"#{parsed.fragment}"
-            
-            return normalized_url
-            
-        except Exception as e:
-            self.logger.debug(f"Error normalizing URL for deduplication {url}: {e}")
-            # Fall back to simple lowercase comparison
-            return url.lower().strip()
         
         # Check against known shorteners
         for shortener in self.SHORTENER_DOMAINS:

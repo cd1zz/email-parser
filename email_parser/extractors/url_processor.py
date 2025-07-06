@@ -1,12 +1,12 @@
 # ============================================================================
-# email_parser/extractors/url_processor.py - CONSERVATIVE VERSION
+# email_parser/extractors/url_processor.py - FIXED VERSION
 # ============================================================================
 """Conservative URL processing - minimal transformation, preserve original URLs."""
 
 import logging
 import time
 import urllib.parse
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
 
 
@@ -51,8 +51,8 @@ class UrlProcessor:
         self.expansion_timeout = expansion_timeout
         self.expansion_delay = expansion_delay
     
-    def process_extracted_urls(self, url_extraction_result) -> List[ProcessedUrl]:
-        """Process URLs with minimal transformation and final deduplication."""
+    def process_extracted_urls(self, url_extraction_result) -> Tuple[List[ProcessedUrl], List[str]]:
+        """Process URLs and return both detailed info and final URL list."""
         self.logger.info(f"Processing {len(url_extraction_result.urls)} extracted URLs (conservative mode)")
         
         processed_urls = []
@@ -75,8 +75,42 @@ class UrlProcessor:
         if self.enable_expansion:
             self._batch_expand_urls(processed_urls)
         
-        self.logger.info(f"Completed processing {len(processed_urls)} unique URLs")
-        return processed_urls
+        # Generate final URLs list (decoded/expanded destinations only)
+        final_urls_list = self.get_final_urls_list(processed_urls)
+        
+        self.logger.info(f"Completed processing {len(processed_urls)} unique URLs, "
+                        f"final destinations: {len(final_urls_list)}")
+        
+        return processed_urls, final_urls_list
+    
+    def get_final_urls_list(self, processed_urls: List[ProcessedUrl]) -> List[str]:
+        """Get list of final destination URLs (decoded/expanded URLs, not wrappers)."""
+        final_urls = []
+        
+        for processed_url in processed_urls:
+            # Priority order for final URL:
+            # 1. Expanded URL (if it was shortened and we expanded it)
+            # 2. Decoded URL (if it was wrapped by security service)  
+            # 3. Final URL (cleaned original)
+            
+            if processed_url.expanded_url:
+                # Use expanded URL for shortened links (bit.ly, t.co, etc.)
+                final_url = processed_url.expanded_url
+                self.logger.debug(f"Using expanded URL: {final_url} (from {processed_url.original_url})")
+            elif processed_url.decoded_url:
+                # Use decoded URL for wrapped links (SafeLinks, Proofpoint, etc.)
+                final_url = processed_url.decoded_url
+                self.logger.debug(f"Using decoded URL: {final_url} (from {processed_url.original_url})")
+            else:
+                # Use final URL (cleaned original) for regular URLs
+                final_url = processed_url.final_url
+                self.logger.debug(f"Using original URL: {final_url}")
+            
+            if final_url and final_url not in final_urls:
+                final_urls.append(final_url)
+        
+        self.logger.info(f"Generated {len(final_urls)} final destination URLs")
+        return final_urls
     
     def _process_single_url(self, url_info: Dict[str, Any]) -> ProcessedUrl:
         """Process a single URL with minimal transformation."""
@@ -134,6 +168,83 @@ class UrlProcessor:
         """Decode wrapped URLs (SafeLinks, Proofpoint, etc.)."""
         if not url:
             return None
+        
+        # Try SafeLinks decoding
+        decoded = self._decode_safelinks(url)
+        if decoded != url:
+            return decoded
+        
+        # Try Proofpoint decoding
+        decoded = self._decode_proofpoint_urls(url)
+        if decoded != url:
+            return decoded
+        
+        # Try other common wrappers
+        decoded = self._decode_other_wrappers(url)
+        if decoded != url:
+            return decoded
+        
+        return None
+    
+    def _decode_safelinks(self, url: str) -> str:
+        """Decode Microsoft SafeLinks URLs."""
+        if not url or 'safelinks.protection.outlook.com' not in url:
+            return url
+        try:
+            parsed = urllib.parse.urlparse(url)
+            query = urllib.parse.parse_qs(parsed.query)
+            target = query.get('url') or query.get('target')
+            if target:
+                decoded = urllib.parse.unquote(target[0])
+                self.logger.debug(f"SafeLinks decoded: {url} -> {decoded}")
+                return decoded
+        except Exception as e:
+            self.logger.warning(f"Error decoding SafeLinks URL {url}: {e}")
+        return url
+    
+    def _decode_proofpoint_urls(self, url: str) -> str:
+        """Decode Proofpoint URL Defense links (multiple variants)."""
+        if not url or 'urldefense.proofpoint.com' not in url:
+            return url
+        try:
+            parsed = urllib.parse.urlparse(url)
+            query = urllib.parse.parse_qs(parsed.query)
+            
+            # Version 2 format: ?u=encoded_url
+            if 'u' in query:
+                encoded = query['u'][0]
+                # Proofpoint v2 uses custom encoding
+                decoded = encoded.replace('-', '%').replace('_', '/')
+                decoded = urllib.parse.unquote(decoded)
+                self.logger.debug(f"Proofpoint decoded: {url} -> {decoded}")
+                return decoded
+                
+        except Exception as e:
+            self.logger.warning(f"Error decoding Proofpoint URL {url}: {e}")
+        return url
+    
+    def _decode_other_wrappers(self, url: str) -> str:
+        """Decode other common URL wrappers."""
+        common_wrappers = [
+            ('protection.office.com', ['url']),
+            ('clicktime.symantec.com', ['u']),
+            ('secure-web.cisco.com', ['u']),
+        ]
+        
+        for wrapper_domain, param_names in common_wrappers:
+            if wrapper_domain in url:
+                try:
+                    parsed = urllib.parse.urlparse(url)
+                    query = urllib.parse.parse_qs(parsed.query)
+                    for param_name in param_names:
+                        if param_name in query:
+                            decoded = urllib.parse.unquote(query[param_name][0])
+                            self.logger.debug(f"{wrapper_domain} decoded: {url} -> {decoded}")
+                            return decoded
+                except Exception as e:
+                    self.logger.debug(f"Error decoding {wrapper_domain} URL: {e}")
+        
+        return url
     
     def _normalize_for_deduplication(self, url: str) -> str:
         """Normalize URL for deduplication purposes."""
@@ -186,80 +297,6 @@ class UrlProcessor:
             self.logger.debug(f"Error normalizing URL for deduplication {url}: {e}")
             # Fall back to simple lowercase comparison
             return url.lower().strip()
-        
-        # Try SafeLinks decoding
-        decoded = self._decode_safelinks(url)
-        if decoded != url:
-            return decoded
-        
-        # Try Proofpoint decoding
-        decoded = self._decode_proofpoint_urls(url)
-        if decoded != url:
-            return decoded
-        
-        # Try other common wrappers
-        decoded = self._decode_other_wrappers(url)
-        if decoded != url:
-            return decoded
-        
-        return None
-    
-    def _decode_safelinks(self, url: str) -> str:
-        """Decode Microsoft SafeLinks URLs."""
-        if not url or 'safelinks.protection.outlook.com' not in url:
-            return url
-        try:
-            parsed = urllib.parse.urlparse(url)
-            query = urllib.parse.parse_qs(parsed.query)
-            target = query.get('url') or query.get('target')
-            if target:
-                decoded = urllib.parse.unquote(target[0])
-                self.logger.debug(f"SafeLinks decoded: {url} -> {decoded}")
-                return decoded
-        except Exception as e:
-            self.logger.warning(f"Error decoding SafeLinks URL {url}: {e}")
-        return url
-    
-    def _decode_proofpoint_urls(self, url: str) -> str:
-        """Decode Proofpoint URL Defense links."""
-        if not url or 'urldefense.proofpoint.com' not in url:
-            return url
-        try:
-            parsed = urllib.parse.urlparse(url)
-            query = urllib.parse.parse_qs(parsed.query)
-            if 'u' in query:
-                encoded = query['u'][0]
-                # Proofpoint uses custom encoding
-                decoded = encoded.replace('-', '%').replace('_', '/')
-                decoded = urllib.parse.unquote(decoded)
-                self.logger.debug(f"Proofpoint decoded: {url} -> {decoded}")
-                return decoded
-        except Exception as e:
-            self.logger.warning(f"Error decoding Proofpoint URL {url}: {e}")
-        return url
-    
-    def _decode_other_wrappers(self, url: str) -> str:
-        """Decode other common URL wrappers."""
-        common_wrappers = [
-            ('protection.office.com', ['url']),
-            ('clicktime.symantec.com', ['u']),
-            ('secure-web.cisco.com', ['u']),
-        ]
-        
-        for wrapper_domain, param_names in common_wrappers:
-            if wrapper_domain in url:
-                try:
-                    parsed = urllib.parse.urlparse(url)
-                    query = urllib.parse.parse_qs(parsed.query)
-                    for param_name in param_names:
-                        if param_name in query:
-                            decoded = urllib.parse.unquote(query[param_name][0])
-                            self.logger.debug(f"{wrapper_domain} decoded: {url} -> {decoded}")
-                            return decoded
-                except Exception as e:
-                    self.logger.debug(f"Error decoding {wrapper_domain} URL: {e}")
-        
-        return url
     
     def _is_url_shortened(self, url: str) -> bool:
         """Check if URL is shortened."""
