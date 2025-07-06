@@ -159,9 +159,9 @@ class UrlExtractor:
         # Remove leading/trailing whitespace
         url = url.strip()
         
-        # Only add http:// to www URLs (common case where protocol is omitted)
+        # Only add https:// to www URLs (common case where protocol is omitted)
         if url.startswith('www.') and not url.startswith(('http://', 'https://')):
-            url = 'http://' + url
+            url = 'https://' + url
         
         # Validate URL structure only for URLs that should have protocols
         if url.startswith(('http://', 'https://', 'ftp://')):
@@ -186,8 +186,8 @@ class UrlExtractor:
             
             # Handle www vs non-www variants
             if normalized.startswith('www.'):
-                # Convert www.example.com to http://www.example.com for parsing
-                temp_url = 'http://' + normalized
+                # Convert www.example.com to https://www.example.com for parsing
+                temp_url = 'https://' + normalized
             elif normalized.startswith(('http://', 'https://', 'ftp://')):
                 temp_url = normalized
             else:
@@ -213,8 +213,8 @@ class UrlExtractor:
                 path = ''
             
             # Rebuild normalized URL for comparison
-            # Use http as default scheme for comparison (treats http/https as same)
-            normalized_url = f"http://{domain}{path}"
+            # Use https as default scheme for comparison (treats http/https as same)
+            normalized_url = f"https://{domain}{path}"
             if parsed.query:
                 normalized_url += f"?{parsed.query}"
             if parsed.fragment:
@@ -233,7 +233,7 @@ class UrlExtractor:
             if not url.startswith(('http://', 'https://', 'ftp://')):
                 # For www URLs without protocol
                 if url.startswith('www.'):
-                    temp_url = 'http://' + url
+                    temp_url = 'https://' + url
                 else:
                     return None
             else:
@@ -275,7 +275,7 @@ class UrlExtractor:
             # For analysis, temporarily add protocol if needed
             analysis_url = url
             if url.startswith('www.') and not url.startswith(('http://', 'https://')):
-                analysis_url = 'http://' + url
+                analysis_url = 'https://' + url
             
             if analysis_url.startswith(('http://', 'https://', 'ftp://')):
                 parsed = urllib.parse.urlparse(analysis_url)
@@ -306,7 +306,7 @@ class UrlExtractor:
         try:
             analysis_url = url
             if url.startswith('www.') and not url.startswith(('http://', 'https://')):
-                analysis_url = 'http://' + url
+                analysis_url = 'https://' + url
             
             if analysis_url.startswith(('http://', 'https://', 'ftp://')):
                 parsed = urllib.parse.urlparse(analysis_url)
