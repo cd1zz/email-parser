@@ -15,9 +15,7 @@ import quopri
 import os
 import sys
 from typing import Dict, List, Any, Optional, Union, Tuple
-from email.message import EmailMessage, Message
-import mimetypes
-import chardet
+from email.message import Message
 import re
 import hashlib
 import struct
@@ -449,8 +447,8 @@ class EmailFormatDetector:
             # Try to decode as text for analysis
             if isinstance(data, bytes):
                 try:
-                    text_data = data.decode('utf-8', errors='ignore')
-                except:
+                    text_data = data.decode('utf-8')
+                except UnicodeDecodeError:
                     text_data = data.decode('latin-1', errors='ignore')
             else:
                 text_data = str(data)
@@ -603,8 +601,10 @@ class EmailParser:
                     try:
                         os.unlink(tmp_file_path)
                         self.logger.debug(f"Cleaned up temporary file on retry: {tmp_file_path}")
-                    except:
-                        self.logger.warning(f"Temporary file cleanup failed, file may need manual deletion: {tmp_file_path}")
+                    except OSError:
+                        self.logger.warning(
+                            f"Temporary file cleanup failed, file may need manual deletion: {tmp_file_path}"
+                        )
     
     def extract_msg_attachment_data(self, attachment):
         """Extract raw data from MSG attachment for proper content type detection."""
@@ -731,104 +731,6 @@ class EmailParser:
             lines.append("[Error reading body content]")
             lines.append(f"\n--{boundary}--")
 
-    def _normalize_msg_content(self, content) -> Optional[str]:
-        """Normalize MSG content to proper string format."""
-        if content is None:
-            return None
-        
-        try:
-            # If it's already a string, return it
-            if isinstance(content, str):
-                return content
-            
-            # If it's bytes, decode it properly
-            elif isinstance(content, bytes):
-                # Try different encodings
-                for encoding in ['utf-8', 'utf-16', 'windows-1252', 'latin-1']:
-                    try:
-                        return content.decode(encoding)
-                    except (UnicodeDecodeError, UnicodeError):
-                        continue
-                
-                # Last resort - decode with errors='replace'
-                return content.decode('utf-8', errors='replace')
-            
-            # For any other type, convert to string
-            else:
-                content_str = str(content)
-                # Check if it looks like a bytes representation string
-                if content_str.startswith("b'") and content_str.endswith("'"):
-                    # This is a string representation of bytes - try to parse it
-                    try:
-                        # Remove the b' prefix and ' suffix, then handle escape sequences
-                        inner_content = content_str[2:-1]
-                        # Handle common escape sequences
-                        inner_content = inner_content.replace('\\r\\n', '\r\n')
-                        inner_content = inner_content.replace('\\n', '\n')
-                        inner_content = inner_content.replace('\\r', '\r')
-                        inner_content = inner_content.replace('\\t', '\t')
-                        inner_content = inner_content.replace("\\'", "'")
-                        inner_content = inner_content.replace('\\"', '"')
-                        inner_content = inner_content.replace('\\\\', '\\')
-                        return inner_content
-                    except Exception as e:
-                        self.logger.debug(f"Failed to parse bytes string representation: {e}")
-                        return content_str
-                else:
-                    return content_str
-                    
-        except Exception as e:
-            self.logger.error(f"Error normalizing MSG content: {e}")
-            return str(content) if content is not None else None
-    def _normalize_msg_content(self, content) -> Optional[str]:
-        """Normalize MSG content to proper string format."""
-        if content is None:
-            return None
-        
-        try:
-            # If it's already a string, return it
-            if isinstance(content, str):
-                return content
-            
-            # If it's bytes, decode it properly
-            elif isinstance(content, bytes):
-                # Try different encodings
-                for encoding in ['utf-8', 'utf-16', 'windows-1252', 'latin-1']:
-                    try:
-                        return content.decode(encoding)
-                    except (UnicodeDecodeError, UnicodeError):
-                        continue
-                
-                # Last resort - decode with errors='replace'
-                return content.decode('utf-8', errors='replace')
-            
-            # For any other type, convert to string
-            else:
-                content_str = str(content)
-                # Check if it looks like a bytes representation string
-                if content_str.startswith("b'") and content_str.endswith("'"):
-                    # This is a string representation of bytes - try to parse it
-                    try:
-                        # Remove the b' prefix and ' suffix, then handle escape sequences
-                        inner_content = content_str[2:-1]
-                        # Handle common escape sequences
-                        inner_content = inner_content.replace('\\r\\n', '\r\n')
-                        inner_content = inner_content.replace('\\n', '\n')
-                        inner_content = inner_content.replace('\\r', '\r')
-                        inner_content = inner_content.replace('\\t', '\t')
-                        inner_content = inner_content.replace("\\'", "'")
-                        inner_content = inner_content.replace('\\"', '"')
-                        inner_content = inner_content.replace('\\\\', '\\')
-                        return inner_content
-                    except Exception as e:
-                        self.logger.debug(f"Failed to parse bytes string representation: {e}")
-                        return content_str
-                else:
-                    return content_str
-                    
-        except Exception as e:
-            self.logger.error(f"Error normalizing MSG content: {e}")
-            return str(content) if content is not None else None
     
     def parse_email_from_input(self, input_data: Union[str, bytes], filename: str = None) -> Optional[Message]:
         """Parse email from various input formats with robust detection."""
@@ -889,7 +791,7 @@ class EmailParser:
                         return self.bytes_parser.parsebytes(input_data)
                     else:
                         return self.parser.parsestr(input_data)
-                except:
+                except Exception:
                     self.logger.error("Fallback parsing failed")
                     return None
                     
@@ -1316,49 +1218,6 @@ class EmailParser:
             self.logger.error(f"Error converting MSG to email format: {e}")
             return None
 
-    def convert_html_to_text(self, html_content: str) -> str:
-        """Convert HTML content to plain text with better handling."""
-        try:
-            if not html_content:
-                return ""
-            
-            # Try to import html2text for better conversion
-            try:
-                import html2text
-                h = html2text.HTML2Text()
-                h.ignore_links = True
-                h.ignore_images = True
-                h.body_width = 0  # No line wrapping
-                h.unicode_snob = True  # Better Unicode handling
-                result = h.handle(html_content).strip()
-                self.logger.debug(f"html2text conversion successful, result length: {len(result)}")
-                return result
-            except ImportError:
-                self.logger.debug("html2text not available, using fallback conversion")
-                # Fallback to basic HTML tag removal
-                import re
-                import html
-                
-                # Remove script and style content
-                text = re.sub(r'<script[^>]*>.*?</script>', '', html_content, flags=re.DOTALL | re.IGNORECASE)
-                text = re.sub(r'<style[^>]*>.*?</style>', '', text, flags=re.DOTALL | re.IGNORECASE)
-                
-                # Remove HTML tags
-                text = re.sub(r'<[^>]+>', '', text)
-                
-                # Convert HTML entities
-                text = html.unescape(text)
-                
-                # Clean up whitespace
-                text = re.sub(r'\s+', ' ', text).strip()
-                
-                self.logger.debug(f"Fallback conversion successful, result length: {len(text)}")
-                return text
-                
-        except Exception as e:
-            self.logger.error(f"Error converting HTML to text: {e}")
-            return f"[HTML conversion failed: {e}]"
-
     def _normalize_msg_content(self, content) -> Optional[str]:
         """Normalize MSG content to proper string format with enhanced Unicode handling."""
         if content is None:
@@ -1637,8 +1496,8 @@ class EmailParser:
             payload = part.get_payload(decode=True)
             if isinstance(payload, bytes):
                 try:
-                    payload_str = payload.decode('utf-8', errors='ignore')
-                except:
+                    payload_str = payload.decode('utf-8')
+                except UnicodeDecodeError:
                     payload_str = payload.decode('latin-1', errors='ignore')
             else:
                 payload_str = str(payload)
