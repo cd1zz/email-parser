@@ -473,7 +473,7 @@ class EmailStructureExtractor:
         return headers
 
     def _extract_streamlined_body(self, message: Message) -> Dict[str, Any]:
-        """Extract body with streamlined format."""
+        """Extract body with streamlined format - with content type validation."""
         body = {
             'text': None,
             'html': None,
@@ -485,22 +485,54 @@ class EmailStructureExtractor:
         
         if message.is_multipart():
             for part in message.walk():
-                content_type = part.get_content_type()
+                declared_content_type = part.get_content_type()
                 
-                if content_type == 'text/plain' and not plain_text:
-                    plain_text = self._extract_text_content(part)
-                elif content_type == 'text/html' and not html_content:
-                    html_content = self._extract_text_content(part)
+                # Extract the raw content first
+                raw_content = self._extract_text_content(part)
+                if not raw_content:
+                    continue
+                
+                # VALIDATE: Check if declared content type matches actual content
+                validation_result = self._validate_content_type(raw_content, declared_content_type)
+                
+                if validation_result['is_mismatch']:
+                    self.logger.warning(f"Content type mismatch detected: "
+                                    f"declared='{declared_content_type}' "
+                                    f"actual='{validation_result['detected_type']}' "
+                                    f"confidence={validation_result['confidence']:.2f}")
+                
+                # Use the validated content type for processing
+                effective_content_type = validation_result['effective_type']
+                
+                if effective_content_type == 'text/html' and not html_content:
+                    html_content = raw_content
+                    self.logger.info(f"Processing as HTML content (declared: {declared_content_type})")
+                elif effective_content_type == 'text/plain' and not plain_text:
+                    plain_text = raw_content
+                    self.logger.info(f"Processing as plain text content (declared: {declared_content_type})")
+                    
         else:
-            content_type = message.get_content_type()
-            content = self._extract_text_content(message)
+            declared_content_type = message.get_content_type()
+            raw_content = self._extract_text_content(message)
             
-            if content_type == 'text/plain':
-                plain_text = content
-            elif content_type == 'text/html':
-                html_content = content
+            if raw_content:
+                # VALIDATE: Check single-part content type too
+                validation_result = self._validate_content_type(raw_content, declared_content_type)
+                
+                if validation_result['is_mismatch']:
+                    self.logger.warning(f"Single-part content type mismatch: "
+                                    f"declared='{declared_content_type}' "
+                                    f"actual='{validation_result['detected_type']}' "
+                                    f"confidence={validation_result['confidence']:.2f}")
+                
+                effective_content_type = validation_result['effective_type']
+                
+                if effective_content_type == 'text/html':
+                    html_content = raw_content
+                else:
+                    plain_text = raw_content
 
-        # Set body content
+        # Set body content with preference for plain text if both exist
         if plain_text and plain_text.strip():
             body['text'] = plain_text.strip()
         elif html_content:
@@ -518,6 +550,130 @@ class EmailStructureExtractor:
                 body['html'] = html_content
 
         return body
+
+    def _validate_content_type(self, content: str, declared_type: str) -> Dict[str, Any]:
+        """
+        VALIDATE declared content type against actual content.
+        
+        Returns:
+            {
+                'declared_type': str,           # What the header claims
+                'detected_type': str,           # What we detected from content
+                'effective_type': str,          # What type to use for processing
+                'confidence': float,            # Confidence in detection (0.0-1.0)
+                'is_mismatch': bool,           # True if declared != detected
+                'validation_notes': List[str]   # Reasons for detection
+            }
+        """
+        if not content or not content.strip():
+            return {
+                'declared_type': declared_type,
+                'detected_type': declared_type,
+                'effective_type': declared_type,
+                'confidence': 1.0,
+                'is_mismatch': False,
+                'validation_notes': ['Empty content - using declared type']
+            }
+        
+        content_sample = content.strip()[:2000]  # Check first 2000 chars
+        content_lower = content_sample.lower()
+        validation_notes = []
+        
+        # Detection scoring system
+        html_score = 0.0
+        plain_score = 0.0
+        
+        # STRONG HTML indicators (high confidence)
+        strong_html_patterns = [
+            ('<!doctype html', 0.9, 'HTML DOCTYPE declaration'),
+            ('<html', 0.9, 'HTML root element'),
+            ('</html>', 0.9, 'HTML closing tag'),
+            ('<head>', 0.8, 'HTML head section'),
+            ('<body>', 0.8, 'HTML body section'),
+            ('<meta ', 0.7, 'HTML meta tags'),
+            ('xmlns=', 0.7, 'XML namespace (HTML email)'),
+        ]
+        
+        for pattern, score, note in strong_html_patterns:
+            if pattern in content_lower:
+                html_score = max(html_score, score)
+                validation_notes.append(f"Found: {note}")
+        
+        # HTML tag counting
+        import re
+        html_tags = re.findall(r'<\w+[^>]*>', content_sample)
+        closing_tags = re.findall(r'</\w+>', content_sample)
+        
+        if len(html_tags) >= 5:
+            tag_score = min(0.8, 0.1 * len(html_tags))
+            html_score = max(html_score, tag_score)
+            validation_notes.append(f"Found {len(html_tags)} HTML tags")
+        
+        if len(closing_tags) >= 2:
+            html_score = max(html_score, 0.6)
+            validation_notes.append(f"Found {len(closing_tags)} closing tags")
+        
+        # HTML entities
+        html_entities = re.findall(r'&\w+;', content_sample)
+        if len(html_entities) >= 3:
+            html_score = max(html_score, 0.5)
+            validation_notes.append(f"Found {len(html_entities)} HTML entities")
+        
+        # PLAIN TEXT indicators
+        plain_indicators = [
+            (content_sample.startswith('Dear '), 0.6, 'Typical email greeting'),
+            (content_sample.startswith('Hello '), 0.5, 'Plain text greeting'),
+            (content_sample.startswith('Hi '), 0.5, 'Casual greeting'),
+            ('\n\n' in content and '<' not in content[:200], 0.7, 'Paragraph breaks without HTML'),
+            (content.count('\n') > 3 and not '<' in content, 0.6, 'Multiple line breaks, no HTML'),
+        ]
+        
+        for condition, score, note in plain_indicators:
+            if condition:
+                plain_score = max(plain_score, score)
+                validation_notes.append(f"Plain text indicator: {note}")
+        
+        # Determine detected type and confidence
+        if html_score > plain_score and html_score > 0.5:
+            detected_type = 'text/html'
+            confidence = html_score
+        elif plain_score > html_score and plain_score > 0.5:
+            detected_type = 'text/plain'
+            confidence = plain_score
+        else:
+            # Ambiguous - default to declared type but with low confidence
+            detected_type = declared_type
+            confidence = 0.3
+            validation_notes.append("Ambiguous content - using declared type")
+        
+        # Check for mismatch
+        is_mismatch = False
+        effective_type = declared_type  # Start with declared type
+        
+        if declared_type != detected_type:
+            # We have a potential mismatch
+            if confidence >= 0.7:
+                # High confidence detection - use detected type
+                is_mismatch = True
+                effective_type = detected_type
+                validation_notes.append(f"High confidence mismatch - using detected type")
+            elif confidence >= 0.5:
+                # Medium confidence - flag as mismatch but use declared type
+                is_mismatch = True
+                validation_notes.append(f"Medium confidence mismatch - keeping declared type")
+            else:
+                # Low confidence - just log the uncertainty
+                validation_notes.append(f"Low confidence detection - using declared type")
+        
+        return {
+            'declared_type': declared_type,
+            'detected_type': detected_type,
+            'effective_type': effective_type,
+            'confidence': confidence,
+            'is_mismatch': is_mismatch,
+            'validation_notes': validation_notes
+        }
+
 
     def _process_attachments_streamlined(self, message: Message, depth: int) -> tuple:
         """Process attachments with streamlined format - FIXED VERSION."""
@@ -965,8 +1121,9 @@ class EmailStructureExtractor:
             
         return content_info
     
+
     def _extract_email_body(self, message: Message) -> Dict[str, Any]:
-        """Extract email body content with HTML conversion."""
+        """Extract email body content with HTML conversion - with content type validation for verbose mode."""
         self.logger.debug("Extracting email body content...")
         
         body_info = {
@@ -974,7 +1131,8 @@ class EmailStructureExtractor:
             'html_content': None,
             'body_type': 'none',
             'truncated': False,
-            'char_count': 0
+            'char_count': 0,
+            'content_type_validation': []  # NEW: Track validation results
         }
         
         try:
@@ -982,62 +1140,72 @@ class EmailStructureExtractor:
                 self.logger.debug("Processing multipart message for body extraction")
                 
                 for part in message.walk():
-                    content_type = part.get_content_type()
+                    declared_content_type = part.get_content_type()
                     
-                    if content_type == 'text/plain' and not body_info['plain_text']:
-                        try:
-                            text_content = self._extract_text_content(part)
-                            if text_content and text_content.strip():
-                                body_info['plain_text'] = text_content.strip()
-                                body_info['body_type'] = 'plain'
-                                body_info['char_count'] = len(body_info['plain_text'])
-                                self.logger.debug(f"Found plain text body ({body_info['char_count']} chars)")
-                        except Exception as e:
-                            self.logger.debug(f"Error extracting plain text: {e}")
+                    raw_content = self._extract_text_content(part)
+                    if not raw_content:
+                        continue
                     
-                    elif content_type == 'text/html' and not body_info['html_content']:
-                        try:
-                            html_content = self._extract_text_content(part)
-                            if html_content and html_content.strip():
-                                body_info['html_content'] = html_content.strip()
-                                self.logger.debug(f"Found HTML body ({len(body_info['html_content'])} chars)")
-                                
-                                if not body_info['plain_text']:
-                                    plain_from_html = self.html_converter.convert(body_info['html_content'])
-                                    if plain_from_html and plain_from_html.strip():
-                                        body_info['plain_text'] = plain_from_html.strip()
-                                        body_info['body_type'] = 'html_converted'
-                                        body_info['char_count'] = len(body_info['plain_text'])
-                                        self.logger.debug(f"Converted HTML to text ({body_info['char_count']} chars)")
-                        except Exception as e:
-                            self.logger.debug(f"Error extracting HTML: {e}")
-            else:
-                content_type = message.get_content_type()
-                self.logger.debug(f"Processing single-part message: {content_type}")
-                
-                try:
-                    content = self._extract_text_content(message)
-                    if content:
-                        content = content.strip()
+                    # VALIDATE content type
+                    validation_result = self._validate_content_type(raw_content, declared_content_type)
+                    body_info['content_type_validation'].append(validation_result)
+                    
+                    if validation_result['is_mismatch']:
+                        self.logger.warning(f"Content type mismatch in multipart: {validation_result}")
+                    
+                    effective_content_type = validation_result['effective_type']
+                    
+                    if effective_content_type == 'text/plain' and not body_info['plain_text']:
+                        body_info['plain_text'] = raw_content.strip()
+                        body_info['body_type'] = 'plain'
+                        body_info['char_count'] = len(body_info['plain_text'])
+                        self.logger.debug(f"Found plain text body ({body_info['char_count']} chars)")
+                    
+                    elif effective_content_type == 'text/html' and not body_info['html_content']:
+                        body_info['html_content'] = raw_content.strip()
+                        self.logger.debug(f"Found HTML body ({len(body_info['html_content'])} chars)")
                         
-                        if content_type == 'text/plain':
-                            body_info['plain_text'] = content
-                            body_info['body_type'] = 'plain'
-                            body_info['char_count'] = len(content)
-                        elif content_type == 'text/html':
-                            body_info['html_content'] = content
-                            plain_from_html = self.html_converter.convert(content)
+                        if not body_info['plain_text']:
+                            plain_from_html = self.html_converter.convert(body_info['html_content'])
                             if plain_from_html and plain_from_html.strip():
                                 body_info['plain_text'] = plain_from_html.strip()
                                 body_info['body_type'] = 'html_converted'
                                 body_info['char_count'] = len(body_info['plain_text'])
-                        else:
-                            body_info['plain_text'] = content
-                            body_info['body_type'] = 'unknown'
-                            body_info['char_count'] = len(content)
-                except Exception as e:
-                    self.logger.debug(f"Error extracting single-part content: {e}")
+                                self.logger.debug(f"Converted HTML to text ({body_info['char_count']} chars)")
+            else:
+                declared_content_type = message.get_content_type()
+                self.logger.debug(f"Processing single-part message: {declared_content_type}")
+                
+                raw_content = self._extract_text_content(message)
+                if raw_content:
+                    raw_content = raw_content.strip()
+                    
+                    # VALIDATE content type
+                    validation_result = self._validate_content_type(raw_content, declared_content_type)
+                    body_info['content_type_validation'].append(validation_result)
+                    
+                    if validation_result['is_mismatch']:
+                        self.logger.warning(f"Content type mismatch in single-part: {validation_result}")
+                    
+                    effective_content_type = validation_result['effective_type']
+                    
+                    if effective_content_type == 'text/plain':
+                        body_info['plain_text'] = raw_content
+                        body_info['body_type'] = 'plain'
+                        body_info['char_count'] = len(raw_content)
+                    elif effective_content_type == 'text/html':
+                        body_info['html_content'] = raw_content
+                        plain_from_html = self.html_converter.convert(raw_content)
+                        if plain_from_html and plain_from_html.strip():
+                            body_info['plain_text'] = plain_from_html.strip()
+                            body_info['body_type'] = 'html_converted'
+                            body_info['char_count'] = len(body_info['plain_text'])
+                    else:
+                        body_info['plain_text'] = raw_content
+                        body_info['body_type'] = 'unknown'
+                        body_info['char_count'] = len(raw_content)
             
+            # Handle HTML content truncation for output
             if body_info['html_content'] and len(body_info['html_content']) > 50:
                 body_info['html_preview'] = body_info['html_content'][:50] + "... [HTML CONTENT TRUNCATED FOR BREVITY]"
                 body_info['truncated'] = True
@@ -1047,14 +1215,14 @@ class EmailStructureExtractor:
                 del body_info['html_content']
             
             self.logger.info(f"Body extraction complete: type={body_info['body_type']}, "
-                           f"chars={body_info['char_count']}, truncated={body_info['truncated']}")
+                        f"chars={body_info['char_count']}, truncated={body_info['truncated']}")
             
         except Exception as e:
             self.logger.error(f"Error extracting email body: {e}")
             body_info['error'] = str(e)
         
         return body_info
-    
+
     def _extract_text_content(self, part: Message) -> Optional[str]:
         """Extract and decode text content from a message part."""
         try:
