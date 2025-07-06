@@ -35,13 +35,6 @@ def main() -> None:
         enable_url_expansion=args.expand_urls,
         expansion_timeout=args.expansion_timeout
     )
-    args = parser.parse_args()
-
-    # Set log level
-    log_level = getattr(logging, args.log_level.upper())
-    
-    # Create parser
-    email_parser = create_email_parser(log_level)
     
     # Read and parse file
     try:
@@ -73,63 +66,44 @@ if __name__ == "__main__":  # pragma: no cover
 # ============================================================================
 
 """
-# Basic usage:
+# Basic usage with URL analysis:
+python -m email_parser.cli email.msg
+
+# With URL expansion (slower but more comprehensive):
+python -m email_parser.cli email.msg --expand-urls
+
+# Disable URL analysis for faster processing:
+python -m email_parser.cli email.msg --no-url-analysis
+
+# Save results with URL analysis to file:
+python -m email_parser.cli email.msg --output analysis.json --expand-urls
+
+# Programmatic usage with URL analysis:
 from email_parser import create_email_parser
 
-parser = create_email_parser()
+# Enable URL analysis with expansion
+parser = create_email_parser(
+    enable_url_analysis=True,
+    enable_url_expansion=True,
+    expansion_timeout=10
+)
+
 with open('email.msg', 'rb') as f:
     data = f.read()
+
 result = parser.parse(data, 'email.msg')
 
-# Advanced usage with custom configuration:
-import logging
-from email_parser import create_email_parser
-
-parser = create_email_parser(log_level=logging.DEBUG)
-result = parser.parse(email_data, filename="suspicious.eml")
-
-# The result structure:
-{
-    "status": "success",
-    "detected_format": "MsgFormatParser", 
-    "format_confidence": 0.9,
-    "structure": {
-        "type": "email",
-        "headers": {...},
-        "body": {
-            "plain_text": "Email content...",
-            "body_type": "plain",
-            "char_count": 1234
-        },
-        "attachments": [
-            {
-                "filename": "document.pdf",
-                "content_analysis": {
-                    "detected_type": "pdf",
-                    "mime_type": "application/pdf",
-                    "hashes": {"md5": "...", "sha256": "..."},
-                    "size": 12345
-                },
-                "is_nested_email": false
-            }
-        ],
-        "nested_emails": [],
-        "attachment_count": 1
-    }
-}
-
-# Testing individual components:
-from email_parser.content_analyzer import ContentAnalyzer
-from email_parser.normalizers import Utf16ContentNormalizer
-
-analyzer = ContentAnalyzer(logger)
-normalizer = Utf16ContentNormalizer(logger)
-
-# Test content analysis
-with open('attachment.pdf', 'rb') as f:
-    analysis = analyzer.analyze_content(f.read(), 'attachment.pdf')
-print(analysis.detected_type, analysis.confidence)
-
-# Test content normalization  
-normalized = normalizer.normalize(msg_body_content)
+# Access URL analysis
+if 'url_analysis' in result['structure']:
+    url_analysis = result['structure']['url_analysis']
+    print(f"Found {url_analysis['summary']['total_urls']} URLs")
+    print(f"Unique domains: {url_analysis['summary']['unique_domains']}")
+    
+    # Access detailed URL information
+    for url in url_analysis['processed_urls']:
+        print(f"URL: {url['original_url']}")
+        print(f"Domain: {url['domain']}")
+        print(f"Shortened: {url['is_shortened']}")
+        if url['expanded_url']:
+            print(f"Expanded: {url['expanded_url']}")
 """
