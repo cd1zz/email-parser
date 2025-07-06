@@ -16,13 +16,21 @@ from .extractors.document_extractor import DocumentProcessor
 
 class EmailStructureExtractor:
     """Extracts email structure with document text extraction support."""
-    
-    def __init__(self, logger: logging.Logger, content_analyzer, html_converter: HtmlToTextConverter, url_analyzer=None):
+
+    def __init__(
+        self,
+        logger: logging.Logger,
+        content_analyzer,
+        html_converter: HtmlToTextConverter,
+        url_analyzer=None,
+        enable_document_processing: bool = True,
+    ):
         self.logger = logger
         self.content_analyzer = content_analyzer
         self.html_converter = html_converter
         self.url_analyzer = url_analyzer
         self.document_processor = DocumentProcessor(logger, url_analyzer)
+        self.enable_document_processing = enable_document_processing
 
     def extract_structure(self, message: Message, depth: int = 0, verbose: bool = False) -> Dict[str, Any]:
         """Extract email structure with streamlined default output."""
@@ -52,12 +60,16 @@ class EmailStructureExtractor:
                 }
             }
             
-            # Process all documents and collect results
-            doc_analysis = self._process_all_documents(structure['email'])
-            structure['document_analysis'] = doc_analysis
+            # Process all documents and collect results if enabled
+            if self.enable_document_processing:
+                doc_analysis = self._process_all_documents(structure['email'])
+                structure['document_analysis'] = doc_analysis
             
             # Generate summary after email and document processing
-            structure['summary'] = self._generate_summary(structure['email'], doc_analysis)
+            structure['summary'] = self._generate_summary(
+                structure['email'],
+                doc_analysis if self.enable_document_processing else None,
+            )
             
         else:
             # Nested emails don't need metadata/summary wrapper
@@ -142,8 +154,13 @@ class EmailStructureExtractor:
                     attachment['type'] = self._categorize_attachment_type(final_content_type, filename)
                     
                     # NEW: Process document attachments for text extraction
-                    if self._is_document_type(final_content_type, filename):
-                        self._process_document_attachment(attachment, payload, filename, final_content_type)
+                    if (
+                        self.enable_document_processing
+                        and self._is_document_type(final_content_type, filename)
+                    ):
+                        self._process_document_attachment(
+                            attachment, payload, filename, final_content_type
+                        )
             
             # Check for nested email (this should work for message/rfc822 now)
             if self._detect_nested_email(part):
@@ -178,9 +195,11 @@ class EmailStructureExtractor:
         
         return False
 
-    def _process_document_attachment(self, attachment: Dict[str, Any], payload: bytes, 
+    def _process_document_attachment(self, attachment: Dict[str, Any], payload: bytes,
                                    filename: str, content_type: str) -> None:
         """Process document attachment to extract text and URLs."""
+        if not self.enable_document_processing:
+            return
         try:
             self.logger.info(f"Processing document attachment: {filename}")
             
@@ -224,6 +243,16 @@ class EmailStructureExtractor:
 
     def _process_all_documents(self, email_obj: Dict[str, Any]) -> Dict[str, Any]:
         """Process all document attachments in the email structure and collect analysis."""
+        if not self.enable_document_processing:
+            return {
+                'total_documents_processed': 0,
+                'total_text_extracted': 0,
+                'document_urls_found': 0,
+                'extraction_errors': [],
+                'document_types_found': [],
+                'successful_extractions': [],
+                'failed_extractions': []
+            }
         analysis = {
             'total_documents_processed': 0,
             'total_text_extracted': 0,
@@ -303,16 +332,17 @@ class EmailStructureExtractor:
                 analysis = self.url_analyzer.analyze_email_urls(temp_structure)
                 all_urls.extend(analysis.final_urls)
                 
-                # Add URLs from document extracts
-                def collect_document_urls(email_data):
-                    for attachment in email_data.get('attachments', []):
-                        doc_urls = attachment.get('document_urls', [])
-                        all_urls.extend(doc_urls)
-                    
-                    for nested_email in email_data.get('nested_emails', []):
-                        collect_document_urls(nested_email)
-                
-                collect_document_urls(email_obj)
+                # Add URLs from document extracts if processing enabled
+                if self.enable_document_processing:
+                    def collect_document_urls(email_data):
+                        for attachment in email_data.get('attachments', []):
+                            doc_urls = attachment.get('document_urls', [])
+                            all_urls.extend(doc_urls)
+
+                        for nested_email in email_data.get('nested_emails', []):
+                            collect_document_urls(nested_email)
+
+                    collect_document_urls(email_obj)
                 
                 # Remove duplicates while preserving order
                 seen = set()
