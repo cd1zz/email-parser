@@ -212,14 +212,10 @@ class EmailStructureExtractor:
             attachment['extraction_info'] = doc_result['extraction_result']
             
             if doc_result['processing_success']:
-                # Store extracted text (truncated for main attachment info)
+                # Store extracted text without truncation
                 extracted_text = doc_result['extracted_text']
                 if extracted_text:
-                    # Store truncated version in attachment
-                    if len(extracted_text) > 500:
-                        attachment['document_text'] = extracted_text[:500] + "... [TRUNCATED]"
-                    else:
-                        attachment['document_text'] = extracted_text
+                    attachment['document_text'] = extracted_text
                     
                     # Store URLs found in document
                     attachment['document_urls'] = doc_result['urls_found']
