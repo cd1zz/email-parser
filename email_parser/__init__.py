@@ -1,5 +1,5 @@
 # ============================================================================
-# email_parser/__init__.py - Factory and DI setup
+# email_parser/__init__.py - Updated factory with document processing
 # ============================================================================
 
 import logging
@@ -15,9 +15,12 @@ from .parsers.msg_parser import MsgFormatParser
 from .structure_extractor import EmailStructureExtractor
 from .extractors.url_analyzer import UrlAnalyzer
 
-def create_email_parser(log_level: int = logging.INFO, enable_url_analysis: bool = True,
-                       enable_url_expansion: bool = False, expansion_timeout: int = 5):
-    """Factory function to create a fully configured EmailParser."""
+def create_email_parser(log_level: int = logging.INFO, 
+                       enable_url_analysis: bool = True,
+                       enable_url_expansion: bool = False, 
+                       expansion_timeout: int = 5,
+                       enable_document_processing: bool = True):
+    """Factory function to create a fully configured EmailParser with document processing."""
     # Setup logging
     logging.basicConfig(
         level=log_level,
@@ -40,9 +43,13 @@ def create_email_parser(log_level: int = logging.INFO, enable_url_analysis: bool
             expansion_timeout=expansion_timeout
         )
     
-    # Create structure extractor
+    # Create structure extractor with document processing option
     structure_extractor = EmailStructureExtractor(
-        logger, content_analyzer, html_converter, url_analyzer
+        logger, 
+        content_analyzer, 
+        html_converter, 
+        url_analyzer,
+        enable_document_processing=enable_document_processing
     )
     
     # Create parsers in order of preference (most specific first)
@@ -53,7 +60,3 @@ def create_email_parser(log_level: int = logging.INFO, enable_url_analysis: bool
     ]
     
     return EmailParser(parsers, structure_extractor, logger)
-
-
-
-

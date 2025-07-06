@@ -1,7 +1,7 @@
 # ============================================================================
-# email_parser/extractors/url_extractor.py - FIXED VERSION
+# email_parser/extractors/url_extractor.py - Enhanced with document support
 # ============================================================================
-"""Conservative URL extraction - only actual clickable URLs from email body."""
+"""Enhanced URL extraction with document text processing support."""
 
 import logging
 import re
@@ -12,18 +12,19 @@ from dataclasses import dataclass, field
 
 @dataclass
 class UrlExtractionResult:
-    """Result of URL extraction from email content."""
+    """Result of URL extraction from email content including documents."""
     urls: List[Dict[str, Any]] = field(default_factory=list)
     domains: Set[str] = field(default_factory=set)
     url_count: int = 0
     unique_domain_count: int = 0
     shortened_url_count: int = 0
+    document_url_count: int = 0  # New: URLs found in documents
 
 
 class UrlExtractor:
-    """Conservative URL extractor - only finds real clickable URLs from email body."""
+    """Enhanced URL extractor with document text processing support."""
     
-    # ONLY match complete URLs with protocols - no bare domains
+    # URL patterns for matching complete URLs with protocols
     URL_PATTERNS = [
         # HTTP/HTTPS URLs (most common)
         r'https?://[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*(?::\d{1,5})?(?:/[^\s<>"{}|\\^`\[\]]*)?',
@@ -49,13 +50,13 @@ class UrlExtractor:
         self._compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.URL_PATTERNS]
     
     def extract_urls_from_email(self, email_structure: Dict[str, Any]) -> UrlExtractionResult:
-        """Extract URLs ONLY from email body content."""
-        self.logger.info("Starting conservative URL extraction from email body only")
+        """Extract URLs from email body content and document attachments."""
+        self.logger.info("Starting enhanced URL extraction from email body and documents")
         
         result = UrlExtractionResult()
         seen_urls = set()
         
-        # ONLY extract from body content - ignore headers, attachments, etc.
+        # Extract from email body content
         body = email_structure.get('body', {})
         
         # Extract from plain text body
@@ -73,23 +74,52 @@ class UrlExtractor:
         if body.get('html_preview'):
             self._extract_from_text(body['html_preview'], result, seen_urls, 'body_html')
         
-        # Extract from nested emails (but only their body content)
+        # NEW: Extract from document attachments
+        self._extract_from_documents(email_structure.get('attachments', []), result, seen_urls)
+        
+        # Extract from nested emails (including their documents)
         self._extract_from_nested_emails(email_structure.get('nested_emails', []), result, seen_urls)
         
         # Finalize results
         result.url_count = len(result.urls)
         result.unique_domain_count = len(result.domains)
         result.shortened_url_count = sum(1 for url in result.urls if url.get('is_shortened', False))
+        result.document_url_count = sum(1 for url in result.urls if url.get('source', '').startswith('document_'))
         
-        self.logger.info(f"Conservative URL extraction complete: {result.url_count} URLs, "
+        self.logger.info(f"Enhanced URL extraction complete: {result.url_count} URLs, "
                         f"{result.unique_domain_count} unique domains, "
-                        f"{result.shortened_url_count} shortened URLs")
+                        f"{result.shortened_url_count} shortened URLs, "
+                        f"{result.document_url_count} document URLs")
         
         return result
     
+    def _extract_from_documents(self, attachments: List[Dict[str, Any]], 
+                               result: UrlExtractionResult, seen_urls: Set[str]) -> None:
+        """Extract URLs from document text in attachments."""
+        document_count = 0
+        
+        for i, attachment in enumerate(attachments):
+            # Check if attachment has extracted document text
+            document_text = attachment.get('document_text')
+            if document_text:
+                document_count += 1
+                source = f"document_{i}_{attachment.get('name', 'unknown')}"
+                self.logger.debug(f"Extracting URLs from document: {attachment.get('name', 'unknown')}")
+                self._extract_from_text(document_text, result, seen_urls, source)
+            
+            # Also check for URLs that were already extracted and stored in document_urls
+            doc_urls = attachment.get('document_urls', [])
+            for url in doc_urls:
+                if isinstance(url, str):
+                    self._process_url_string(url, result, seen_urls, 
+                                           f"document_{i}_{attachment.get('name', 'unknown')}_extracted")
+        
+        if document_count > 0:
+            self.logger.info(f"Processed {document_count} documents for URL extraction")
+    
     def _extract_from_text(self, text: str, result: UrlExtractionResult, 
                           seen_urls: Set[str], source: str) -> None:
-        """Extract URLs from text content - only complete URLs with deduplication."""
+        """Extract URLs from text content with deduplication."""
         if not text:
             return
         
@@ -99,35 +129,40 @@ class UrlExtractor:
             matches = pattern.findall(text)
             
             for match in matches:
-                url = self._clean_url(match)
-                if not url:
-                    continue
-                
-                # Normalize URL for deduplication (case-insensitive, protocol-agnostic)
-                normalized_url = self._normalize_for_deduplication(url)
-                
-                if normalized_url not in seen_urls:
-                    seen_urls.add(normalized_url)
-                    
-                    url_info = self._analyze_url(url, source)
-                    result.urls.append(url_info)
-                    
-                    # Extract domain
-                    domain = self._extract_domain(url)
-                    if domain:
-                        result.domains.add(domain)
-                    
-                    self.logger.debug(f"Found new URL: {url} from {source}")
-                else:
-                    self.logger.debug(f"Skipped duplicate URL: {url} from {source}")
+                self._process_url_string(match, result, seen_urls, source)
+    
+    def _process_url_string(self, url_string: str, result: UrlExtractionResult, 
+                           seen_urls: Set[str], source: str) -> None:
+        """Process a single URL string and add to results if not duplicate."""
+        url = self._clean_url(url_string)
+        if not url:
+            return
+        
+        # Normalize URL for deduplication (case-insensitive, protocol-agnostic)
+        normalized_url = self._normalize_for_deduplication(url)
+        
+        if normalized_url not in seen_urls:
+            seen_urls.add(normalized_url)
+            
+            url_info = self._analyze_url(url, source)
+            result.urls.append(url_info)
+            
+            # Extract domain
+            domain = self._extract_domain(url)
+            if domain:
+                result.domains.add(domain)
+            
+            self.logger.debug(f"Found new URL: {url} from {source}")
+        else:
+            self.logger.debug(f"Skipped duplicate URL: {url} from {source}")
     
     def _extract_from_nested_emails(self, nested_emails: List[Dict[str, Any]], 
                                    result: UrlExtractionResult, seen_urls: Set[str]) -> None:
-        """Extract URLs from nested emails - but only from their body content."""
+        """Extract URLs from nested emails including their documents."""
         for i, nested_email in enumerate(nested_emails):
-            self.logger.debug(f"Extracting URLs from nested email {i} body")
+            self.logger.debug(f"Extracting URLs from nested email {i}")
             
-            # Only extract from the body of nested emails
+            # Extract from nested email body
             nested_body = nested_email.get('body', {})
             
             if nested_body.get('text'):
@@ -143,12 +178,29 @@ class UrlExtractor:
             if nested_body.get('html_preview'):
                 self._extract_from_text(nested_body['html_preview'], result, seen_urls, f'nested_email_{i}_body_html')
             
+            # NEW: Extract from nested email documents
+            nested_attachments = nested_email.get('attachments', [])
+            if nested_attachments:
+                self.logger.debug(f"Processing {len(nested_attachments)} attachments in nested email {i}")
+                for j, attachment in enumerate(nested_attachments):
+                    document_text = attachment.get('document_text')
+                    if document_text:
+                        source = f"nested_email_{i}_document_{j}_{attachment.get('name', 'unknown')}"
+                        self._extract_from_text(document_text, result, seen_urls, source)
+                    
+                    # Also process pre-extracted document URLs
+                    doc_urls = attachment.get('document_urls', [])
+                    for url in doc_urls:
+                        if isinstance(url, str):
+                            self._process_url_string(url, result, seen_urls, 
+                                                   f"nested_email_{i}_document_{j}_extracted")
+            
             # Recursively check any further nested emails
             if nested_email.get('nested_emails'):
                 self._extract_from_nested_emails(nested_email['nested_emails'], result, seen_urls)
     
     def _clean_url(self, url: str) -> Optional[str]:
-        """Clean URL - NO protocol addition, just cleanup."""
+        """Clean URL - minimal processing, just cleanup."""
         if not url:
             return None
         
@@ -256,7 +308,7 @@ class UrlExtractor:
             return None
     
     def _analyze_url(self, url: str, source: str) -> Dict[str, Any]:
-        """Analyze URL properties."""
+        """Analyze URL properties including source information."""
         domain = self._extract_domain(url)
         
         url_info = {
@@ -268,7 +320,8 @@ class UrlExtractor:
             'path_depth': 0,
             'has_query_params': False,
             'has_fragment': False,
-            'url_length': len(url)
+            'url_length': len(url),
+            'is_document_url': source.startswith('document_') or 'document_' in source  # NEW: Flag document URLs
         }
         
         try:
@@ -316,3 +369,25 @@ class UrlExtractor:
             pass
         
         return False
+
+    def extract_urls_from_document_text(self, text: str, document_name: str = "unknown") -> List[str]:
+        """Standalone method to extract URLs from document text."""
+        if not text:
+            return []
+        
+        urls = []
+        seen_urls = set()
+        
+        for pattern in self._compiled_patterns:
+            matches = pattern.findall(text)
+            
+            for match in matches:
+                url = self._clean_url(match)
+                if url:
+                    normalized_url = self._normalize_for_deduplication(url)
+                    if normalized_url not in seen_urls:
+                        seen_urls.add(normalized_url)
+                        urls.append(url)
+        
+        self.logger.debug(f"Extracted {len(urls)} URLs from document text: {document_name}")
+        return urls
