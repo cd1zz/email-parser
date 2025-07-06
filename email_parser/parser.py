@@ -1,5 +1,5 @@
 # ============================================================================
-# email_parser/parser.py - Main parser with dependency injection
+# email_parser/parser.py - Updated main parser with verbose support
 # ============================================================================
 
 from typing import List, Dict, Any, Union, Optional
@@ -17,8 +17,17 @@ class EmailParser:
         self.structure_extractor = structure_extractor
         self.logger = logger
     
-    def parse(self, input_data: Union[str, bytes], filename: Optional[str] = None) -> Dict[str, Any]:
-        """Parse email using the appropriate format parser."""
+    def parse(self, input_data: Union[str, bytes], filename: Optional[str] = None, verbose: bool = False) -> Dict[str, Any]:
+        """Parse email using the appropriate format parser.
+        
+        Args:
+            input_data: Email data as string or bytes
+            filename: Optional filename for format detection
+            verbose: If True, use verbose output format. If False, use streamlined format.
+        
+        Returns:
+            Dictionary containing parsing results in either streamlined or verbose format
+        """
         # Convert to bytes for format detection
         if isinstance(input_data, str):
             data_bytes = input_data.encode('utf-8')
@@ -60,13 +69,36 @@ class EmailParser:
                 "parser_results": parser_results,
             }
         
-        # Extract comprehensive structure
-        structure = self.structure_extractor.extract_structure(message)
+        # Extract structure with format option
+        #structure = self.structure_extractor.extract_structure(message, depth=0, verbose=verbose)
+        structure = self.structure_extractor.extract_structure(message, depth=0)
+
         
-        return {
-            "status": "success",
-            "detected_format": type(best_parser).__name__,
-            "format_confidence": best_confidence,
-            "structure": structure,
-            "parser_results": parser_results,
-        }
+        # Build response based on format
+        if verbose:
+            # Verbose format (legacy)
+            return {
+                "status": "success",
+                "detected_format": type(best_parser).__name__.replace('FormatParser', '').lower(),
+                "format_confidence": best_confidence,
+                "msg_support_available": True,  # Keep for backward compatibility
+                "structure": structure,
+                "errors": [],
+                "warnings": [],
+                "format_details": {
+                    "magic_bytes_detected": None,
+                    "content_analysis": None,
+                    "filename_hint": filename
+                }
+            }
+        else:
+            # Streamlined format (default)
+            return {
+                "status": "success",
+                "detected_format": type(best_parser).__name__.replace('FormatParser', '').lower(),
+                "format_confidence": best_confidence,
+                "msg_support_available": True,
+                "structure": structure,
+                "errors": [],
+                "warnings": []
+            }
