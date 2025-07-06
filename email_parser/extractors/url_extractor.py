@@ -1,7 +1,7 @@
 # ============================================================================
-# email_parser/extractors/url_extractor.py
+# email_parser/extractors/url_extractor.py - CONSERVATIVE VERSION
 # ============================================================================
-"""URL extraction from email content."""
+"""Conservative URL extraction - only actual clickable URLs from email body."""
 
 import logging
 import re
@@ -21,16 +21,18 @@ class UrlExtractionResult:
 
 
 class UrlExtractor:
-    """Extract URLs from email content."""
+    """Conservative URL extractor - only finds real clickable URLs from email body."""
     
-    # URL regex patterns
+    # ONLY match complete URLs with protocols - no bare domains
     URL_PATTERNS = [
-        # Standard HTTP/HTTPS URLs
-        r'https?://[^\s<>"{}|\\^`\[\]]+',
-        # URLs without protocol
-        r'(?:www\.)?[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\.[a-zA-Z]{2,}(?:/[^\s<>"{}|\\^`\[\]]*)?',
-        # Email-style URLs (ftp, etc.)
-        r'ftp://[^\s<>"{}|\\^`\[\]]+',
+        # HTTP/HTTPS URLs (most common)
+        r'https?://[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*(?::\d{1,5})?(?:/[^\s<>"{}|\\^`\[\]]*)?',
+        
+        # FTP URLs
+        r'ftp://[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*(?::\d{1,5})?(?:/[^\s<>"{}|\\^`\[\]]*)?',
+        
+        # www URLs (commonly appear without http/https in emails)
+        r'www\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*(?:/[^\s<>"{}|\\^`\[\]]*)?'
     ]
     
     # URL shortener domains for classification
@@ -47,30 +49,31 @@ class UrlExtractor:
         self._compiled_patterns = [re.compile(pattern, re.IGNORECASE) for pattern in self.URL_PATTERNS]
     
     def extract_urls_from_email(self, email_structure: Dict[str, Any]) -> UrlExtractionResult:
-        """Extract URLs from complete email structure."""
-        self.logger.info("Starting URL extraction from email structure")
+        """Extract URLs ONLY from email body content."""
+        self.logger.info("Starting conservative URL extraction from email body only")
         
         result = UrlExtractionResult()
         seen_urls = set()
         
-        # Extract from body content
+        # ONLY extract from body content - ignore headers, attachments, etc.
         body = email_structure.get('body', {})
+        
+        # Extract from plain text body
+        if body.get('text'):
+            self._extract_from_text(body['text'], result, seen_urls, 'body_plain')
+        
+        # Extract from HTML preview (converted to text)
+        if body.get('html'):
+            self._extract_from_text(body['html'], result, seen_urls, 'body_html')
+        
+        # For backward compatibility, also check old field names
         if body.get('plain_text'):
             self._extract_from_text(body['plain_text'], result, seen_urls, 'body_plain')
         
         if body.get('html_preview'):
             self._extract_from_text(body['html_preview'], result, seen_urls, 'body_html')
         
-        # Extract from headers
-        headers = email_structure.get('headers', {})
-        for header_name, header_value in headers.items():
-            if isinstance(header_value, str):
-                self._extract_from_text(header_value, result, seen_urls, f'header_{header_name}')
-        
-        # Extract from attachments (including nested emails)
-        self._extract_from_attachments(email_structure.get('attachments', []), result, seen_urls)
-        
-        # Extract from nested emails
+        # Extract from nested emails (but only their body content)
         self._extract_from_nested_emails(email_structure.get('nested_emails', []), result, seen_urls)
         
         # Finalize results
@@ -78,7 +81,7 @@ class UrlExtractor:
         result.unique_domain_count = len(result.domains)
         result.shortened_url_count = sum(1 for url in result.urls if url.get('is_shortened', False))
         
-        self.logger.info(f"URL extraction complete: {result.url_count} URLs, "
+        self.logger.info(f"Conservative URL extraction complete: {result.url_count} URLs, "
                         f"{result.unique_domain_count} unique domains, "
                         f"{result.shortened_url_count} shortened URLs")
         
@@ -86,7 +89,7 @@ class UrlExtractor:
     
     def _extract_from_text(self, text: str, result: UrlExtractionResult, 
                           seen_urls: Set[str], source: str) -> None:
-        """Extract URLs from text content."""
+        """Extract URLs from text content - only complete URLs with deduplication."""
         if not text:
             return
         
@@ -97,8 +100,14 @@ class UrlExtractor:
             
             for match in matches:
                 url = self._clean_url(match)
-                if url and url not in seen_urls:
-                    seen_urls.add(url)
+                if not url:
+                    continue
+                
+                # Normalize URL for deduplication (case-insensitive, protocol-agnostic)
+                normalized_url = self._normalize_for_deduplication(url)
+                
+                if normalized_url not in seen_urls:
+                    seen_urls.add(normalized_url)
                     
                     url_info = self._analyze_url(url, source)
                     result.urls.append(url_info)
@@ -107,46 +116,39 @@ class UrlExtractor:
                     domain = self._extract_domain(url)
                     if domain:
                         result.domains.add(domain)
-    
-    def _extract_from_attachments(self, attachments: List[Dict[str, Any]], 
-                                 result: UrlExtractionResult, seen_urls: Set[str]) -> None:
-        """Extract URLs from attachment metadata and content."""
-        for i, attachment in enumerate(attachments):
-            # Check filename for URLs
-            filename = attachment.get('filename')
-            if filename:
-                self._extract_from_text(filename, result, seen_urls, f'attachment_{i}_filename')
-            
-            # Check content analysis for URLs (in metadata)
-            content_analysis = attachment.get('content_analysis', {})
-            if isinstance(content_analysis, dict):
-                for key, value in content_analysis.items():
-                    if isinstance(value, str):
-                        self._extract_from_text(value, result, seen_urls, f'attachment_{i}_{key}')
+                    
+                    self.logger.debug(f"Found new URL: {url} from {source}")
+                else:
+                    self.logger.debug(f"Skipped duplicate URL: {url} from {source}")
     
     def _extract_from_nested_emails(self, nested_emails: List[Dict[str, Any]], 
                                    result: UrlExtractionResult, seen_urls: Set[str]) -> None:
-        """Extract URLs from nested emails recursively."""
+        """Extract URLs from nested emails - but only from their body content."""
         for i, nested_email in enumerate(nested_emails):
-            self.logger.debug(f"Extracting URLs from nested email {i}")
+            self.logger.debug(f"Extracting URLs from nested email {i} body")
             
-            # Recursively extract from nested email structure
-            nested_result = self.extract_urls_from_email(nested_email)
+            # Only extract from the body of nested emails
+            nested_body = nested_email.get('body', {})
             
-            # Merge results, avoiding duplicates
-            for url_info in nested_result.urls:
-                url = url_info['original_url']
-                if url not in seen_urls:
-                    seen_urls.add(url)
-                    # Update source to indicate nested email
-                    url_info['source'] = f"nested_email_{i}_{url_info['source']}"
-                    result.urls.append(url_info)
+            if nested_body.get('text'):
+                self._extract_from_text(nested_body['text'], result, seen_urls, f'nested_email_{i}_body_plain')
             
-            # Merge domains
-            result.domains.update(nested_result.domains)
+            if nested_body.get('html'):
+                self._extract_from_text(nested_body['html'], result, seen_urls, f'nested_email_{i}_body_html')
+            
+            # For backward compatibility
+            if nested_body.get('plain_text'):
+                self._extract_from_text(nested_body['plain_text'], result, seen_urls, f'nested_email_{i}_body_plain')
+            
+            if nested_body.get('html_preview'):
+                self._extract_from_text(nested_body['html_preview'], result, seen_urls, f'nested_email_{i}_body_html')
+            
+            # Recursively check any further nested emails
+            if nested_email.get('nested_emails'):
+                self._extract_from_nested_emails(nested_email['nested_emails'], result, seen_urls)
     
     def _clean_url(self, url: str) -> Optional[str]:
-        """Clean and normalize URL."""
+        """Clean URL - NO protocol addition, just cleanup."""
         if not url:
             return None
         
@@ -154,34 +156,45 @@ class UrlExtractor:
         while url and url[-1] in '.,;:!?)]}\'"':
             url = url[:-1]
         
-        # Add protocol if missing
-        if not url.startswith(('http://', 'https://', 'ftp://')):
-            if url.startswith('www.'):
-                url = 'http://' + url
-            elif '.' in url and not url.startswith('mailto:'):
-                url = 'http://' + url
+        # Remove leading/trailing whitespace
+        url = url.strip()
         
-        # Validate URL structure
-        try:
-            parsed = urllib.parse.urlparse(url)
-            if parsed.scheme and parsed.netloc:
-                return urllib.parse.urlunparse(parsed)
-        except Exception as e:
-            self.logger.debug(f"Error normalizing URL {url}: {e}")
+        # Only add http:// to www URLs (common case where protocol is omitted)
+        if url.startswith('www.') and not url.startswith(('http://', 'https://')):
+            url = 'http://' + url
+        
+        # Validate URL structure only for URLs that should have protocols
+        if url.startswith(('http://', 'https://', 'ftp://')):
+            try:
+                parsed = urllib.parse.urlparse(url)
+                if parsed.scheme and parsed.netloc:
+                    return urllib.parse.urlunparse(parsed)
+            except Exception as e:
+                self.logger.debug(f"Error normalizing URL {url}: {e}")
+                return None
         
         return url
     
     def _extract_domain(self, url: str) -> Optional[str]:
         """Extract domain from URL."""
         try:
-            parsed = urllib.parse.urlparse(url)
+            if not url.startswith(('http://', 'https://', 'ftp://')):
+                # For www URLs without protocol
+                if url.startswith('www.'):
+                    temp_url = 'http://' + url
+                else:
+                    return None
+            else:
+                temp_url = url
+            
+            parsed = urllib.parse.urlparse(temp_url)
             domain = parsed.netloc.lower()
             
             # Remove port if present
             if ':' in domain:
                 domain = domain.split(':')[0]
             
-            # Remove www prefix
+            # Remove www prefix for domain storage
             if domain.startswith('www.'):
                 domain = domain[4:]
             
@@ -207,13 +220,19 @@ class UrlExtractor:
         }
         
         try:
-            parsed = urllib.parse.urlparse(url)
-            url_info['scheme'] = parsed.scheme
-            url_info['has_query_params'] = bool(parsed.query)
-            url_info['has_fragment'] = bool(parsed.fragment)
+            # For analysis, temporarily add protocol if needed
+            analysis_url = url
+            if url.startswith('www.') and not url.startswith(('http://', 'https://')):
+                analysis_url = 'http://' + url
             
-            if parsed.path:
-                url_info['path_depth'] = len([p for p in parsed.path.split('/') if p])
+            if analysis_url.startswith(('http://', 'https://', 'ftp://')):
+                parsed = urllib.parse.urlparse(analysis_url)
+                url_info['scheme'] = parsed.scheme
+                url_info['has_query_params'] = bool(parsed.query)
+                url_info['has_fragment'] = bool(parsed.fragment)
+                
+                if parsed.path:
+                    url_info['path_depth'] = len([p for p in parsed.path.split('/') if p])
             
         except Exception as e:
             self.logger.debug(f"Error parsing URL {url}: {e}")
@@ -225,6 +244,58 @@ class UrlExtractor:
         domain = self._extract_domain(url)
         if not domain:
             return False
+    
+    def _normalize_for_deduplication(self, url: str) -> str:
+        """Normalize URL for deduplication purposes."""
+        if not url:
+            return url
+        
+        try:
+            # Convert to lowercase for case-insensitive comparison
+            normalized = url.lower().strip()
+            
+            # Handle www vs non-www variants
+            if normalized.startswith('www.'):
+                # Convert www.example.com to http://www.example.com for parsing
+                temp_url = 'http://' + normalized
+            elif normalized.startswith(('http://', 'https://', 'ftp://')):
+                temp_url = normalized
+            else:
+                return normalized  # Return as-is if we can't parse it
+            
+            # Parse the URL
+            parsed = urllib.parse.urlparse(temp_url)
+            
+            # Normalize the domain (remove www, convert to lowercase)
+            domain = parsed.netloc.lower()
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            
+            # Remove default ports
+            if ':80' in domain and parsed.scheme == 'http':
+                domain = domain.replace(':80', '')
+            elif ':443' in domain and parsed.scheme == 'https':
+                domain = domain.replace(':443', '')
+            
+            # Normalize path (remove trailing slash if it's just "/")
+            path = parsed.path
+            if path == '/':
+                path = ''
+            
+            # Rebuild normalized URL for comparison
+            # Use http as default scheme for comparison (treats http/https as same)
+            normalized_url = f"http://{domain}{path}"
+            if parsed.query:
+                normalized_url += f"?{parsed.query}"
+            if parsed.fragment:
+                normalized_url += f"#{parsed.fragment}"
+            
+            return normalized_url
+            
+        except Exception as e:
+            self.logger.debug(f"Error normalizing URL for deduplication {url}: {e}")
+            # Fall back to simple lowercase comparison
+            return url.lower().strip()
         
         # Check against known shorteners
         for shortener in self.SHORTENER_DOMAINS:
@@ -233,9 +304,14 @@ class UrlExtractor:
         
         # Check for short paths (common in shorteners)
         try:
-            parsed = urllib.parse.urlparse(url)
-            if parsed.path and len(parsed.path) <= 10 and re.match(r'^/[a-zA-Z0-9]+$', parsed.path):
-                return True
+            analysis_url = url
+            if url.startswith('www.') and not url.startswith(('http://', 'https://')):
+                analysis_url = 'http://' + url
+            
+            if analysis_url.startswith(('http://', 'https://', 'ftp://')):
+                parsed = urllib.parse.urlparse(analysis_url)
+                if parsed.path and len(parsed.path) <= 10 and re.match(r'^/[a-zA-Z0-9]+$', parsed.path):
+                    return True
         except Exception:
             pass
         

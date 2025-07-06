@@ -16,6 +16,7 @@ class UrlAnalysisResult:
     """Complete URL analysis results for an email."""
     extraction_result: UrlExtractionResult
     processed_urls: List[ProcessedUrl]
+    final_urls: List[str]  # NEW: Final destination URLs only
     domain_analysis: Dict[str, Any]
     summary: Dict[str, Any]
 
@@ -41,10 +42,10 @@ class UrlAnalyzer:
         # Step 1: Extract URLs from email
         extraction_result = self.url_extractor.extract_urls_from_email(email_structure)
         
-        # Step 2: Process extracted URLs
-        processed_urls = self.url_processor.process_extracted_urls(extraction_result)
+        # Step 2: Process extracted URLs (returns both detailed info and final URL list)
+        processed_urls, final_urls_list = self.url_processor.process_extracted_urls(extraction_result)
         
-        # Step 3: Analyze domains
+        # Step 3: Analyze domains (use final destinations for domain analysis)
         domain_analysis = self._analyze_domains(processed_urls, extraction_result.domains)
         
         # Step 4: Generate summary
@@ -53,11 +54,13 @@ class UrlAnalyzer:
         analysis = UrlAnalysisResult(
             extraction_result=extraction_result,
             processed_urls=processed_urls,
+            final_urls=final_urls_list,  # NEW: Add final URLs list
             domain_analysis=domain_analysis,
             summary=summary
         )
         
-        self.logger.info(f"URL analysis complete: {summary['total_urls']} URLs analyzed")
+        self.logger.info(f"URL analysis complete: {summary['total_urls']} URLs analyzed, "
+                        f"{len(final_urls_list)} final destinations")
         
         return analysis
     
@@ -129,6 +132,7 @@ class UrlAnalyzer:
                 'shortened_url_count': analysis.extraction_result.shortened_url_count
             },
             'processed_urls': [asdict(url) for url in analysis.processed_urls],
+            'final_urls': analysis.final_urls,  # NEW: Simple list of final URLs
             'domain_analysis': analysis.domain_analysis,
             'summary': analysis.summary
         }
