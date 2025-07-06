@@ -473,7 +473,7 @@ class EmailStructureExtractor:
         return headers
 
     def _extract_streamlined_body(self, message: Message) -> Dict[str, Any]:
-        """Extract body with streamlined format - with content type validation."""
+        """Extract body with streamlined format - ENHANCED for better debugging."""
         body = {
             'text': None,
             'html': None,
@@ -484,19 +484,31 @@ class EmailStructureExtractor:
         html_content = None
         
         if message.is_multipart():
-            for part in message.walk():
+            self.logger.info(f"Processing multipart message with {len(message.get_payload())} parts")
+            
+            for i, part in enumerate(message.walk()):
                 declared_content_type = part.get_content_type()
+                encoding = part.get('Content-Transfer-Encoding', '').lower().strip()
+                
+                self.logger.debug(f"Part {i}: Content-Type={declared_content_type}, Encoding={encoding}")
+                
+                # Skip the main multipart container
+                if declared_content_type.startswith('multipart/'):
+                    continue
                 
                 # Extract the raw content first
                 raw_content = self._extract_text_content(part)
                 if not raw_content:
+                    self.logger.debug(f"Part {i}: No content extracted")
                     continue
+                
+                self.logger.info(f"Part {i}: Extracted {len(raw_content)} characters")
                 
                 # VALIDATE: Check if declared content type matches actual content
                 validation_result = self._validate_content_type(raw_content, declared_content_type)
                 
                 if validation_result['is_mismatch']:
-                    self.logger.warning(f"Content type mismatch detected: "
+                    self.logger.warning(f"Part {i}: Content type mismatch detected: "
                                     f"declared='{declared_content_type}' "
                                     f"actual='{validation_result['detected_type']}' "
                                     f"confidence={validation_result['confidence']:.2f}")
@@ -506,16 +518,22 @@ class EmailStructureExtractor:
                 
                 if effective_content_type == 'text/html' and not html_content:
                     html_content = raw_content
-                    self.logger.info(f"Processing as HTML content (declared: {declared_content_type})")
+                    self.logger.info(f"Part {i}: Using as HTML content (declared: {declared_content_type})")
                 elif effective_content_type == 'text/plain' and not plain_text:
                     plain_text = raw_content
-                    self.logger.info(f"Processing as plain text content (declared: {declared_content_type})")
+                    self.logger.info(f"Part {i}: Using as plain text content (declared: {declared_content_type})")
                     
         else:
             declared_content_type = message.get_content_type()
+            encoding = message.get('Content-Transfer-Encoding', '').lower().strip()
+            
+            self.logger.info(f"Processing single-part message: Content-Type={declared_content_type}, Encoding={encoding}")
+            
             raw_content = self._extract_text_content(message)
             
             if raw_content:
+                self.logger.info(f"Single-part: Extracted {len(raw_content)} characters")
+                
                 # VALIDATE: Check single-part content type too
                 validation_result = self._validate_content_type(raw_content, declared_content_type)
                 
@@ -535,11 +553,13 @@ class EmailStructureExtractor:
         # Set body content with preference for plain text if both exist
         if plain_text and plain_text.strip():
             body['text'] = plain_text.strip()
+            self.logger.info(f"Using plain text body: {len(body['text'])} characters")
         elif html_content:
             # Convert HTML to text if no plain text available
             converted = self.html_converter.convert(html_content)
             if converted and converted.strip():
                 body['text'] = converted.strip()
+                self.logger.info(f"Converted HTML to text: {len(body['text'])} characters")
 
         if html_content and html_content.strip():
             body['has_html'] = True
@@ -548,6 +568,7 @@ class EmailStructureExtractor:
                 body['html'] = html_content[:500] + "..."
             else:
                 body['html'] = html_content
+            self.logger.info(f"HTML content detected: {len(html_content)} characters")
 
         return body
 
@@ -1224,47 +1245,69 @@ class EmailStructureExtractor:
         return body_info
 
     def _extract_text_content(self, part: Message) -> Optional[str]:
-        """Extract and decode text content from a message part."""
+        """Extract and decode text content from a message part - FIXED for base64."""
         try:
-            payload = part.get_payload(decode=True)
+            # CRITICAL FIX: Handle base64 encoding properly
+            encoding = part.get('Content-Transfer-Encoding', '').lower().strip()
             
+            # Get the payload - but handle base64 differently
+            if encoding == 'base64':
+                # For base64, get raw payload first, then decode manually
+                raw_payload = part.get_payload(decode=False)  # Get raw base64 string
+                if isinstance(raw_payload, list):
+                    return None
+                
+                try:
+                    import base64
+                    # Decode base64 manually
+                    decoded_bytes = base64.b64decode(raw_payload)
+                    self.logger.debug(f"Successfully decoded base64 content: {len(decoded_bytes)} bytes")
+                    payload = decoded_bytes
+                except Exception as e:
+                    self.logger.warning(f"Manual base64 decode failed: {e}, falling back to get_payload(decode=True)")
+                    payload = part.get_payload(decode=True)
+            else:
+                # For other encodings, use standard method
+                payload = part.get_payload(decode=True)
+            
+            # Handle the case where payload is still None or a list
             if payload is None:
                 payload = part.get_payload(decode=False)
                 if isinstance(payload, list):
                     return None
             
+            # Convert bytes to string with proper charset handling
             if isinstance(payload, bytes):
                 charset = part.get_content_charset() or 'utf-8'
                 
-                encoding = part.get('Content-Transfer-Encoding', '').lower()
-                
-                if encoding == 'quoted-printable':
-                    try:
-                        payload = quopri.decodestring(payload)
-                    except Exception as e:
-                        self.logger.debug(f"Manual quoted-printable decode failed: {e}")
-                elif encoding == 'base64':
-                    try:
-                        payload = base64.b64decode(payload)
-                    except Exception as e:
-                        self.logger.debug(f"Manual base64 decode failed: {e}")
-                
                 try:
                     content = payload.decode(charset, errors='ignore')
+                    self.logger.debug(f"Decoded {len(payload)} bytes using charset {charset}")
                 except (UnicodeDecodeError, LookupError):
-                    for fallback_charset in ['utf-8', 'latin1', 'cp1252']:
+                    # Try fallback charsets
+                    for fallback_charset in ['utf-8', 'latin1', 'cp1252', 'windows-1252']:
                         try:
                             content = payload.decode(fallback_charset, errors='ignore')
+                            self.logger.debug(f"Successfully decoded using fallback charset {fallback_charset}")
                             break
                         except (UnicodeDecodeError, LookupError):
                             continue
                     else:
                         content = payload.decode('utf-8', errors='replace')
+                        self.logger.warning("Used UTF-8 with errors='replace' as final fallback")
                         
             elif isinstance(payload, str):
                 content = payload
             else:
                 content = str(payload)
+            
+            # ADDITIONAL FIX: Clean up common base64 artifacts
+            if encoding == 'base64' and content:
+                # Remove any stray base64 padding or whitespace that might remain
+                content = content.strip()
+                
+                # Log successful extraction
+                self.logger.info(f"Successfully extracted and decoded {encoding} content: {len(content)} characters")
             
             return content
             
