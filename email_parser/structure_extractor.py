@@ -4,7 +4,7 @@
 
 import email
 import base64
-import quopri
+import re
 from typing import Dict, Any, List, Optional
 from email.message import Message
 from datetime import datetime
@@ -104,8 +104,63 @@ class EmailStructureExtractor:
         
         return email_obj
 
+    def _detect_nested_email_streamlined(self, part: Message) -> bool:
+        """Detect nested emails in streamlined format - ENHANCED with base64 support."""
+        content_type = part.get_content_type()
+        filename = part.get_filename()
+        
+        self.logger.debug(f"Streamlined: Checking for nested email - Content-Type: {content_type}, Filename: {filename}")
+        
+        # Check content type first
+        if content_type in ['message/rfc822', 'message/partial', 'message/external-body']:
+            self.logger.info(f"Streamlined: Detected nested email by content type: {content_type}")
+            return True
+        
+        # Check filename extensions
+        if filename:
+            email_extensions = ['.eml', '.msg', '.email']
+            for ext in email_extensions:
+                if filename.lower().endswith(ext):
+                    self.logger.info(f"Streamlined: Detected nested email by filename: {filename}")
+                    return True
+        
+        # ENHANCED: Check for base64-encoded email content
+        try:
+            encoding = part.get('Content-Transfer-Encoding', '').lower().strip()
+            
+            if encoding == 'base64':
+                self.logger.debug("Streamlined: Checking base64 content for nested email")
+                raw_payload = part.get_payload(decode=False)
+                if isinstance(raw_payload, str):
+                    decoded_content = self._try_decode_base64_email(raw_payload)
+                    if decoded_content:
+                        self.logger.info("Streamlined: Found nested email in base64 content!")
+                        return True
+            
+            # Also check normally decoded content
+            payload = part.get_payload(decode=True)
+            if isinstance(payload, bytes):
+                try:
+                    payload_str = payload.decode('utf-8', errors='ignore')
+                except UnicodeDecodeError:
+                    payload_str = payload.decode('latin-1', errors='ignore')
+            else:
+                payload_str = str(payload) if payload else ""
+            
+            # Check decoded content for email headers
+            if self._has_email_headers(payload_str):
+                self.logger.info("Streamlined: Detected nested email by header analysis")
+                return True
+                    
+        except Exception as e:
+            self.logger.debug(f"Streamlined: Error in nested email detection: {e}")
+        
+        return False
+
+
+
     def _build_streamlined_attachment(self, part: Message, depth: int) -> Dict[str, Any]:
-        """Build streamlined attachment info with document text extraction."""
+        """Build streamlined attachment info with document text extraction and BASE64 EMAIL DETECTION."""
         
         # Enhanced filename extraction
         filename = self._extract_attachment_filename(part)
@@ -119,9 +174,10 @@ class EmailStructureExtractor:
             'mime_type': content_type,
             'is_inline': 'inline' in part.get('Content-Disposition', '').lower(),
             'contains_email': False,
-            'document_text': None,  # New: Extracted document text
-            'document_urls': [],    # New: URLs found in document
-            'extraction_info': None  # New: Document extraction metadata
+            'document_text': None,  # NEW: Extracted document text
+            'document_urls': [],    # NEW: URLs found in document
+            'extraction_info': None,  # NEW: Document extraction metadata
+            'base64_email_detected': False  # NEW: Base64 email detection flag
         }
         
         # Get size and analyze content
@@ -162,12 +218,17 @@ class EmailStructureExtractor:
                             attachment, payload, filename, final_content_type
                         )
             
-            # Check for nested email (this should work for message/rfc822 now)
-            if self._detect_nested_email(part):
+            # ENHANCED: Check for nested email INCLUDING BASE64 DETECTION
+            if self._detect_nested_email_streamlined(part):
                 attachment['contains_email'] = True
-                # Set type to email if it contains an email
-                attachment['type'] = 'email'
-                    
+                attachment['type'] = 'email'  # Override type for emails
+                
+                # Try to extract the nested email
+                nested_email = self._extract_nested_email_streamlined(part, depth + 1)
+                if nested_email:
+                    attachment['nested_email'] = nested_email
+                    self.logger.info(f"Successfully extracted nested email from attachment: {filename}")
+            
         except Exception as e:
             self.logger.debug(f"Error analyzing attachment: {e}")
         
@@ -752,9 +813,61 @@ class EmailStructureExtractor:
                     nested_emails.append(nested_email)
         
         return attachments, nested_emails
+    
 
+    def _try_decode_base64_email(self, base64_content: str) -> Optional[str]:
+        """Try to decode base64 content and check if it's an email."""
+        try:
+            import re
+            # Clean up the base64 string - remove whitespace
+            clean_b64 = re.sub(r'\s+', '', base64_content.strip())
+            
+            # Decode base64
+            decoded_bytes = base64.b64decode(clean_b64)
+            
+            # Try to decode as text with different encodings
+            for encoding in ['utf-8', 'latin-1', 'windows-1252']:
+                try:
+                    decoded_text = decoded_bytes.decode(encoding, errors='ignore')
+                    break
+                except UnicodeDecodeError:
+                    continue
+            else:
+                decoded_text = decoded_bytes.decode('utf-8', errors='replace')
+            
+            # Check if decoded content looks like an email
+            if self._has_email_headers(decoded_text):
+                self.logger.info(f"Successfully decoded base64 content as email ({len(decoded_text)} chars)")
+                return decoded_text
+                
+        except Exception as e:
+            self.logger.debug(f"Failed to decode base64 as email: {e}")
+        
+        return None
+
+    def _has_email_headers(self, content: str) -> bool:
+        """Check if content has email header patterns."""
+        if not content or len(content) < 50:
+            return False
+            
+        email_indicators = [
+            'From:', 'To:', 'Subject:', 'Date:', 'Message-ID:', 
+            'Received:', 'Return-Path:', 'Content-Type:'
+        ]
+        
+        # Look at first 2000 characters for headers
+        content_sample = content[:2000]
+        
+        header_count = 0
+        for indicator in email_indicators:
+            if indicator in content_sample:
+                header_count += 1
+        
+        self.logger.debug(f"Found {header_count} email header indicators in content")
+        
+        # Require at least 3 email headers to consider it an email
+        return header_count >= 3
     # Include all remaining helper methods from the original implementation...
-    # (I'll include the key ones here for completeness)
     
     def _extract_attachment_filename(self, part: Message) -> str:
         """Enhanced filename extraction with multiple fallback methods."""
@@ -820,59 +933,106 @@ class EmailStructureExtractor:
             return 'other'
 
     def _extract_nested_email_streamlined(self, part: Message, depth: int) -> Optional[Dict[str, Any]]:
-        """Extract nested email with streamlined format."""
+        """Extract nested email with base64 support - ENHANCED for streamlined format."""
         try:
+            nested_message = None
+            
             if part.get_content_type() == 'message/rfc822':
+                # Standard RFC822 handling
                 payload_list = part.get_payload()
                 if isinstance(payload_list, list) and len(payload_list) > 0:
                     nested_message = payload_list[0]
                 else:
                     return None
             else:
-                payload = part.get_payload(decode=True)
-                if isinstance(payload, bytes):
-                    from email.parser import BytesParser
-                    parser = BytesParser(policy=email.policy.default)
-                    nested_message = parser.parsebytes(payload)
-                else:
-                    return None
+                # ENHANCED: Check for base64-encoded emails first
+                encoding = part.get('Content-Transfer-Encoding', '').lower().strip()
+                
+                if encoding == 'base64':
+                    # Try to decode base64 content as email
+                    raw_payload = part.get_payload(decode=False)
+                    if isinstance(raw_payload, str):
+                        decoded_email_text = self._try_decode_base64_email(raw_payload)
+                        if decoded_email_text:
+                            # Parse the decoded email text
+                            from email.parser import Parser
+                            parser = Parser(policy=email.policy.default)
+                            nested_message = parser.parsestr(decoded_email_text)
+                            self.logger.info(f"Streamlined: Successfully parsed base64-encoded email at depth {depth}")
+                
+                # Fallback to standard decoding if base64 didn't work
+                if not nested_message:
+                    payload = part.get_payload(decode=True)
+                    if isinstance(payload, bytes):
+                        from email.parser import BytesParser
+                        parser = BytesParser(policy=email.policy.default)
+                        nested_message = parser.parsebytes(payload)
+                    elif isinstance(payload, str):
+                        from email.parser import Parser
+                        parser = Parser(policy=email.policy.default)
+                        nested_message = parser.parsestr(payload)
+                    else:
+                        return None
             
             if nested_message:
                 return self._build_streamlined_email(nested_message, depth)
                 
         except Exception as e:
-            self.logger.error(f"Error extracting nested email at depth {depth}: {e}")
+            self.logger.error(f"Streamlined: Error extracting nested email at depth {depth}: {e}")
         
         return None
 
     def _detect_nested_email(self, part: Message) -> bool:
-        """Detect if a part contains a nested email."""
+        """Detect if a part contains a nested email - ENHANCED with base64 support."""
         content_type = part.get_content_type()
+        filename = part.get_filename()
         
+        self.logger.debug(f"Checking for nested email - Content-Type: {content_type}, Filename: {filename}")
+        
+        # Check content type first
         if content_type in ['message/rfc822', 'message/partial', 'message/external-body']:
+            self.logger.info(f"Detected nested email by content type: {content_type}")
             return True
         
-        filename = part.get_filename()
+        # Check filename extensions
         if filename:
             email_extensions = ['.eml', '.msg', '.email']
             for ext in email_extensions:
                 if filename.lower().endswith(ext):
+                    self.logger.info(f"Detected nested email by filename: {filename}")
                     return True
         
-        # Check content for email patterns
+        # ENHANCED: Check for base64-encoded email content
         try:
+            encoding = part.get('Content-Transfer-Encoding', '').lower().strip()
+            
+            if encoding == 'base64':
+                self.logger.debug("Checking base64 content for nested email")
+                raw_payload = part.get_payload(decode=False)
+                if isinstance(raw_payload, str):
+                    decoded_content = self._try_decode_base64_email(raw_payload)
+                    if decoded_content:
+                        self.logger.info("Found nested email in base64 content!")
+                        return True
+            
+            # Also check normally decoded content
             payload = part.get_payload(decode=True)
             if isinstance(payload, bytes):
-                payload_str = payload.decode('utf-8', errors='ignore')
+                try:
+                    payload_str = payload.decode('utf-8', errors='ignore')
+                except UnicodeDecodeError:
+                    payload_str = payload.decode('latin-1', errors='ignore')
             else:
-                payload_str = str(payload)
+                payload_str = str(payload) if payload else ""
             
-            email_indicators = ['From:', 'To:', 'Subject:', 'Date:', 'Message-ID:']
-            header_count = sum(1 for indicator in email_indicators if indicator in payload_str[:2000])
-            
-            return header_count >= 3
-        except Exception:
-            return False
+            # Check decoded content for email headers
+            if self._has_email_headers(payload_str):
+                return True
+                    
+        except Exception as e:
+            self.logger.debug(f"Error in nested email detection: {e}")
+        
+        return False
 
     def _extract_text_content(self, part: Message) -> Optional[str]:
         """Extract and decode text content from a message part."""
