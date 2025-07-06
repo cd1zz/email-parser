@@ -11,6 +11,8 @@ from . import create_email_parser
 
 def main() -> None:
     """Command line interface for the email parser."""
+def main() -> None:
+    """Command line interface for the email parser."""
     parser = argparse.ArgumentParser(description="Email parsing utility with URL analysis")
     parser.add_argument("file", type=Path, help="Input email file (.eml, .msg, .mbox)")
     parser.add_argument("--log-level", type=str, default="INFO", 
@@ -23,6 +25,9 @@ def main() -> None:
                        help="Enable URL expansion for shortened URLs (slower)")
     parser.add_argument("--expansion-timeout", type=int, default=5,
                        help="Timeout for URL expansion requests (seconds)")
+    # MISSING FLAG:
+    parser.add_argument("--verbose", action="store_true",
+                       help="Enable verbose output with detailed email structure")
     args = parser.parse_args()
 
     # Set log level
