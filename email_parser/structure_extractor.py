@@ -221,11 +221,10 @@ class EmailStructureExtractor:
         return attachments, nested_emails
 
     def _build_streamlined_attachment(self, part: Message, depth: int) -> Dict[str, Any]:
-        """Build streamlined attachment info."""
-        filename = part.get_filename()
-        if filename:
-            filename = filename.strip('\x00')  # CRITICAL: Remove null bytes
-        filename = filename or 'unknown'
+        """Build streamlined attachment info with improved filename extraction."""
+        
+        # Enhanced filename extraction
+        filename = self._extract_attachment_filename(part)
         
         content_type = part.get_content_type()
         
@@ -277,6 +276,122 @@ class EmailStructureExtractor:
             self.logger.debug(f"Error analyzing attachment: {e}")
         
         return attachment
+
+    def _extract_attachment_filename(self, part: Message) -> str:
+        """Enhanced filename extraction with multiple fallback methods."""
+        
+        # Method 1: Standard get_filename()
+        filename = part.get_filename()
+        if filename:
+            filename = filename.strip('\x00').strip()  # Remove null bytes and whitespace
+            if filename and filename != 'unknown':
+                self.logger.debug(f"Filename from get_filename(): {filename}")
+                return filename
+        
+        # Method 2: Parse Content-Disposition header manually
+        content_disposition = part.get('Content-Disposition', '')
+        if content_disposition:
+            # Look for filename= or filename*= parameters
+            import re
+            
+            # Standard filename parameter
+            filename_match = re.search(r'filename\s*=\s*["\']?([^"\';\r\n]+)["\']?', content_disposition, re.IGNORECASE)
+            if filename_match:
+                filename = filename_match.group(1).strip().strip('\x00')
+                if filename:
+                    self.logger.debug(f"Filename from Content-Disposition: {filename}")
+                    return filename
+            
+            # RFC 2231 encoded filename (filename*=)
+            filename_star_match = re.search(r'filename\*\s*=\s*([^;]+)', content_disposition, re.IGNORECASE)
+            if filename_star_match:
+                encoded_filename = filename_star_match.group(1).strip()
+                try:
+                    # Parse RFC 2231 format: charset'lang'encoded-value
+                    if "'" in encoded_filename:
+                        parts = encoded_filename.split("'", 2)
+                        if len(parts) == 3:
+                            charset, lang, encoded_value = parts
+                            import urllib.parse
+                            decoded_filename = urllib.parse.unquote(encoded_value, encoding=charset or 'utf-8')
+                            if decoded_filename:
+                                self.logger.debug(f"Filename from RFC2231 encoding: {decoded_filename}")
+                                return decoded_filename.strip('\x00')
+                except Exception as e:
+                    self.logger.debug(f"Error decoding RFC2231 filename: {e}")
+        
+        # Method 3: Check Content-Type header for name parameter
+        content_type_header = part.get('Content-Type', '')
+        if content_type_header:
+            name_match = re.search(r'name\s*=\s*["\']?([^"\';\r\n]+)["\']?', content_type_header, re.IGNORECASE)
+            if name_match:
+                filename = name_match.group(1).strip().strip('\x00')
+                if filename:
+                    self.logger.debug(f"Filename from Content-Type name: {filename}")
+                    return filename
+        
+        # Method 4: For nested emails, try to extract from Message-ID or Subject
+        if part.get_content_type() == 'message/rfc822':
+            try:
+                payload = part.get_payload()
+                if isinstance(payload, list) and len(payload) > 0:
+                    nested_msg = payload[0]
+                    
+                    # Try to get subject for filename
+                    subject = nested_msg.get('Subject', '')
+                    if subject:
+                        # Clean subject to make it a valid filename
+                        import re
+                        cleaned_subject = re.sub(r'[<>:"/\\|?*]', '_', subject.strip())
+                        if cleaned_subject:
+                            filename = f"{cleaned_subject}.eml"
+                            self.logger.debug(f"Generated filename from subject: {filename}")
+                            return filename
+                    
+                    # Try Message-ID as last resort
+                    msg_id = nested_msg.get('Message-ID', '')
+                    if msg_id:
+                        # Extract meaningful part from Message-ID
+                        msg_id_clean = re.sub(r'[<>@.]', '_', msg_id.strip())
+                        if msg_id_clean:
+                            filename = f"message_{msg_id_clean[:20]}.eml"
+                            self.logger.debug(f"Generated filename from Message-ID: {filename}")
+                            return filename
+            except Exception as e:
+                self.logger.debug(f"Error extracting filename from nested email: {e}")
+        
+        # Method 5: Generate filename based on content type and position
+        content_type = part.get_content_type()
+        
+        # Create a meaningful default based on content type
+        type_extensions = {
+            'text/plain': '.txt',
+            'text/html': '.html',
+            'image/jpeg': '.jpg',
+            'image/png': '.png',
+            'image/gif': '.gif',
+            'application/pdf': '.pdf',
+            'application/msword': '.doc',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document': '.docx',
+            'application/vnd.ms-excel': '.xls',
+            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': '.xlsx',
+            'application/zip': '.zip',
+            'message/rfc822': '.eml',
+            'application/vnd.ms-outlook': '.msg'
+        }
+        
+        extension = type_extensions.get(content_type, '')
+        
+        # Use content type for base name
+        if '/' in content_type:
+            base_name = content_type.split('/')[1].replace('-', '_')
+        else:
+            base_name = 'attachment'
+        
+        filename = f"{base_name}{extension}" if extension else f"{base_name}_file"
+        
+        self.logger.debug(f"Generated default filename: {filename}")
+        return filename
 
     def _categorize_attachment_type(self, content_type: str, filename: str) -> str:
         """Categorize attachment type for streamlined output."""
