@@ -14,6 +14,7 @@ from .format_detector import EmailFormatDetector
 
 try:
     import extract_msg
+
     MSG_SUPPORT = True
 except Exception:  # pragma: no cover - optional
     MSG_SUPPORT = False
@@ -39,7 +40,9 @@ class EmailParser:
         self.logger = logging.getLogger(__name__)
 
     # ------------------------------------------------------------------
-    def parse(self, input_data: Union[str, bytes], filename: str | None = None) -> Dict[str, Any]:
+    def parse(
+        self, input_data: Union[str, bytes], filename: str | None = None
+    ) -> Dict[str, Any]:
         if isinstance(input_data, str):
             data_bytes = input_data.encode()
         else:
@@ -49,7 +52,11 @@ class EmailParser:
 
         message = self._parse_message(data_bytes, fmt)
         if not message:
-            return {"status": "failed", "errors": ["could not parse message"], "detected_format": fmt}
+            return {
+                "status": "failed",
+                "errors": ["could not parse message"],
+                "detected_format": fmt,
+            }
 
         structure = self._extract_structure(message)
         return {
@@ -80,11 +87,17 @@ class EmailParser:
         with tempfile.NamedTemporaryFile(suffix=".msg", delete=False) as tmp:
             tmp.write(data)
             tmp_path = tmp.name
+        msg = None
         try:
             msg = extract_msg.Message(tmp_path)
             content = self._convert_msg(msg)
             return self.parser.parsestr(content)
         finally:
+            if msg is not None:
+                try:
+                    msg.close()
+                except Exception:  # pragma: no cover - best effort cleanup
+                    pass
             os.unlink(tmp_path)
 
     # ------------------------------------------------------------------
@@ -98,6 +111,8 @@ class EmailParser:
             "",
         ]
         body = getattr(msg, "body", "")
+        if body is None:
+            body = ""
         if isinstance(body, bytes):
             body = body.decode("utf-8", "replace")
         lines.append(body)
@@ -112,13 +127,21 @@ class EmailParser:
                     continue
                 if part.get_filename():
                     data = part.get_payload(decode=True) or b""
-                    info = self.content_analyzer.analyze_content(data, part.get_filename(), part.get_content_type())
-                    attachments.append({
-                        "filename": part.get_filename(),
-                        "analysis": info.__dict__,
-                    })
+                    info = self.content_analyzer.analyze_content(
+                        data, part.get_filename(), part.get_content_type()
+                    )
+                    attachments.append(
+                        {
+                            "filename": part.get_filename(),
+                            "analysis": info.__dict__,
+                        }
+                    )
         body = self._get_body_text(message)
-        return {"attachment_count": len(attachments), "attachments": attachments, "body_preview": body[:80]}
+        return {
+            "attachment_count": len(attachments),
+            "attachments": attachments,
+            "body_preview": body[:80],
+        }
 
     # ------------------------------------------------------------------
     def _get_body_text(self, msg: Message) -> str:
@@ -127,7 +150,9 @@ class EmailParser:
                 if part.get_content_type() == "text/plain":
                     payload = part.get_payload(decode=True)
                     if payload:
-                        return payload.decode(part.get_content_charset() or "utf-8", "replace")
+                        return payload.decode(
+                            part.get_content_charset() or "utf-8", "replace"
+                        )
         else:
             payload = msg.get_payload(decode=True)
             if payload:
