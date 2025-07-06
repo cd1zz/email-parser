@@ -10,18 +10,21 @@ from email.message import Message
 import logging
 
 from .converters import HtmlToTextConverter
+from typing import Optional
 
 
 class EmailStructureExtractor:
     """Extracts comprehensive email structure with attachments and nested emails."""
     
-    def __init__(self, logger: logging.Logger, content_analyzer, html_converter: HtmlToTextConverter):
+    def __init__(self, logger: logging.Logger, content_analyzer, html_converter: HtmlToTextConverter, url_analyzer=None):
         self.logger = logger
         self.content_analyzer = content_analyzer
         self.html_converter = html_converter
-    
+        self.url_analyzer = url_analyzer  
+
+
     def extract_structure(self, message: Message, depth: int = 0) -> Dict[str, Any]:
-        """Extract comprehensive email structure with nested email support."""
+        """Extract comprehensive email structure with nested email support and URL analysis."""
         self.logger.info(f"Extracting email structure at depth {depth}")
         
         structure = {
@@ -35,7 +38,8 @@ class EmailStructureExtractor:
             'nested_emails': [],
             'part_count': 0,
             'attachment_count': 0,
-            'nested_email_count': 0
+            'nested_email_count': 0,
+            'url_analysis': None  # Add URL analysis field
         }
         
         try:
@@ -80,7 +84,18 @@ class EmailStructureExtractor:
                         structure['nested_emails'].append(attachment['nested_email'])
                         structure['nested_email_count'] += 1
                     structure['attachment_count'] += 1
-                
+            
+            # Add URL analysis if analyzer is available (only at top level to avoid recursion)
+            if self.url_analyzer and depth == 0:
+                try:
+                    self.logger.info("Performing URL analysis on email structure")
+                    url_analysis = self.url_analyzer.analyze_email_urls(structure)
+                    structure['url_analysis'] = self.url_analyzer.get_serializable_analysis(url_analysis)
+                    self.logger.info(f"URL analysis complete: {structure['url_analysis']['summary']}")
+                except Exception as e:
+                    self.logger.error(f"Error during URL analysis: {e}")
+                    structure['url_analysis'] = {'error': str(e)}
+            
         except Exception as e:
             self.logger.error(f"Error extracting email structure: {e}")
             structure['parsing_error'] = str(e)
@@ -91,7 +106,7 @@ class EmailStructureExtractor:
                         f"{structure['nested_email_count']} nested emails")
         
         return structure
-    
+
     def _extract_headers(self, message: Message) -> Dict[str, Any]:
         """Extract and analyze email headers."""
         self.logger.debug("Extracting headers...")
@@ -244,19 +259,16 @@ class EmailStructureExtractor:
                 except Exception as e:
                     self.logger.debug(f"Error extracting single-part content: {e}")
             
-            # Truncate body if too long (keep first 1000 chars for preview)
-            if body_info['plain_text'] and len(body_info['plain_text']) > 1000:
-                body_info['plain_text'] = body_info['plain_text'][:1000] + "... [TRUNCATED]"
+            # Truncate HTML preview only (keep first 50 chars for preview)
+
+            if body_info['html_content'] and len(body_info['html_content']) > 50:
+                body_info['html_preview'] = body_info['html_content'][:50] + "... [HTML CONTENT TRUNCATED FOR BREVITY]"
                 body_info['truncated'] = True
-                self.logger.debug("Body content truncated for output")
-            
-            # Add HTML preview without full content
-            if body_info['html_content']:
-                html_preview = (body_info['html_content'][:200] + "... [HTML CONTENT DETECTED - TRUNCATED]" 
-                              if len(body_info['html_content']) > 200 
-                              else body_info['html_content'] + " [HTML CONTENT DETECTED]")
-                body_info['html_preview'] = html_preview
                 del body_info['html_content']
+            elif body_info['html_content']:
+                body_info['html_preview'] = body_info['html_content'] + " [HTML CONTENT DETECTED]"
+                del body_info['html_content']
+
             
             self.logger.info(f"Body extraction complete: type={body_info['body_type']}, "
                            f"chars={body_info['char_count']}, truncated={body_info['truncated']}")

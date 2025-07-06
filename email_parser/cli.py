@@ -9,15 +9,32 @@ import logging
 
 from . import create_email_parser
 
-
 def main() -> None:
     """Command line interface for the email parser."""
-    parser = argparse.ArgumentParser(description="Email parsing utility")
+    parser = argparse.ArgumentParser(description="Email parsing utility with URL analysis")
     parser.add_argument("file", type=Path, help="Input email file (.eml, .msg, .mbox)")
     parser.add_argument("--log-level", type=str, default="INFO", 
                        choices=["DEBUG", "INFO", "WARNING", "ERROR"],
                        help="Set logging level")
     parser.add_argument("--output", type=Path, help="Output JSON file")
+    parser.add_argument("--no-url-analysis", action="store_true", 
+                       help="Disable URL extraction and analysis")
+    parser.add_argument("--expand-urls", action="store_true",
+                       help="Enable URL expansion for shortened URLs (slower)")
+    parser.add_argument("--expansion-timeout", type=int, default=5,
+                       help="Timeout for URL expansion requests (seconds)")
+    args = parser.parse_args()
+
+    # Set log level
+    log_level = getattr(logging, args.log_level.upper())
+    
+    # Create parser with URL analysis options
+    email_parser = create_email_parser(
+        log_level=log_level,
+        enable_url_analysis=not args.no_url_analysis,
+        enable_url_expansion=args.expand_urls,
+        expansion_timeout=args.expansion_timeout
+    )
     args = parser.parse_args()
 
     # Set log level
