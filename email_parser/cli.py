@@ -9,8 +9,7 @@ import logging
 
 from . import create_email_parser
 
-def main() -> None:
-    """Command line interface for the email parser."""
+
 def main() -> None:
     """Command line interface for the email parser."""
     parser = argparse.ArgumentParser(description="Email parsing utility with URL analysis")

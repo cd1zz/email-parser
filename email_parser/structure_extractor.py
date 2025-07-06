@@ -63,8 +63,7 @@ class EmailStructureExtractor:
             'body': self._extract_streamlined_body(message),
             'attachments': [],
             'nested_emails': [],
-            'urls': [],
-            'suspicious_indicators': []
+            'urls': []
         }
         
         # Process attachments and nested emails
@@ -534,9 +533,9 @@ class EmailStructureExtractor:
         
         # Collect domains
         domains = set()
-        for email in all_emails:
+        for email_entry in all_emails:
             for header in ['from', 'to', 'cc']:
-                value = email.get('headers', {}).get(header, '')
+                value = email_entry.get('headers', {}).get(header, '')
                 if '@' in value:
                     try:
                         # Extract domain from email address - handle different formats
@@ -551,14 +550,14 @@ class EmailStructureExtractor:
                             domain = email_part.split('@')[1].strip()
                             if domain:
                                 domains.add(domain)
-                    except:
+                    except Exception:
                         pass
         
         # Collect attachment types from all emails
         attachment_types = set()
         total_attachments = 0
-        for email in all_emails:
-            for att in email.get('attachments', []):
+        for email_entry in all_emails:
+            for att in email_entry.get('attachments', []):
                 attachment_types.add(att.get('type', 'unknown'))
                 total_attachments += 1
         
