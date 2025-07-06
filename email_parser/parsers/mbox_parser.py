@@ -2,6 +2,15 @@
 # email_parser/parsers/mbox_parser.py
 # ============================================================================
 
+import email.parser
+import email.policy
+import logging
+from typing import Optional, Tuple
+from email.message import Message
+
+from ..interfaces import EmailFormatParser
+
+
 class MboxFormatParser(EmailFormatParser):
     """Parser for MBOX email files."""
     

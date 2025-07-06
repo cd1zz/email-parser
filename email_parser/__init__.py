@@ -5,6 +5,15 @@
 import logging
 import sys
 
+from .converters import HtmlToTextConverter
+from .content_analyzer import ContentAnalyzer
+from .normalizers import Utf16ContentNormalizer
+from .parser import EmailParser
+from .parsers.eml_parser import EmlFormatParser
+from .parsers.mbox_parser import MboxFormatParser
+from .parsers.msg_parser import MsgFormatParser
+from .structure_extractor import EmailStructureExtractor
+
 
 def create_email_parser(log_level: int = logging.INFO):
     """Factory function to create a fully configured EmailParser."""

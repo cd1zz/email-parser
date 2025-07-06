@@ -7,6 +7,9 @@ import base64
 import quopri
 from typing import Dict, Any, List, Optional
 from email.message import Message
+import logging
+
+from .converters import HtmlToTextConverter
 
 
 class EmailStructureExtractor:

@@ -4,6 +4,11 @@
 
 import email.parser
 import email.policy
+import logging
+from typing import Optional, Tuple
+from email.message import Message
+
+from ..interfaces import EmailFormatParser
 
 
 class EmlFormatParser(EmailFormatParser):
