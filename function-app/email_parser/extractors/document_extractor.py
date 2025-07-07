@@ -401,48 +401,48 @@ class DocumentTextExtractor:
             return False
     
     def _extract_pdf_text(self, pdf_data: bytes) -> DocumentExtractionResult:
-            """Extract text from PDF using pdfminer."""
+        """Extract text from PDF using pdfminer."""
+        try:
+            # Try pdfminer first (most reliable)
             try:
-                # Try pdfminer first (most reliable)
-                try:
-                    from pdfminer.high_level import extract_text
-                    
-                    pdf_file = io.BytesIO(pdf_data)
-                    text = extract_text(pdf_file)
-                    
-                    if text and text.strip():
-                        return DocumentExtractionResult(
-                            text_content=text.strip(),
-                            success=True,
-                            document_type='pdf',
-                            extraction_method='pdfminer',
-                            metadata={'character_count': len(text.strip())}
-                        )
-                    else:
-                        return DocumentExtractionResult(
-                            success=False,
-                            error_message="PDF contains no extractable text",
-                            document_type='pdf',
-                            extraction_method='pdfminer'
-                        )
-                        
-                except ImportError:
-                    self.logger.warning("pdfminer not available for PDF text extraction")
+                from pdfminer.high_level import extract_text
+                
+                pdf_file = io.BytesIO(pdf_data)
+                text = extract_text(pdf_file)
+                
+                if text and text.strip():
+                    return DocumentExtractionResult(
+                        text_content=text.strip(),
+                        success=True,
+                        document_type='pdf',
+                        extraction_method='pdfminer',
+                        metadata={'character_count': len(text.strip())}
+                    )
+                else:
                     return DocumentExtractionResult(
                         success=False,
-                        error_message="pdfminer library not available",
-                        document_type='pdf'
+                        error_message="PDF contains no extractable text",
+                        document_type='pdf',
+                        extraction_method='pdfminer'
                     )
                     
-            except Exception as e:
-                # FIXED: Don't claim library is unavailable when it's a PDF processing error
-                self.logger.error(f"Error extracting text from PDF: {e}")
+            except ImportError:
+                self.logger.warning("pdfminer not available for PDF text extraction")
                 return DocumentExtractionResult(
                     success=False,
-                    error_message=f"PDF extraction failed: {str(e)}",
-                    document_type='pdf',
-                    extraction_method='pdfminer'
+                    error_message="pdfminer library not available",
+                    document_type='pdf'
                 )
+                    
+        except Exception as e:
+            # FIXED: Don't claim library is unavailable when it's a PDF processing error
+            self.logger.error(f"Error extracting text from PDF: {e}")
+            return DocumentExtractionResult(
+                success=False,
+                error_message=f"PDF extraction failed: {str(e)}",
+                document_type='pdf',
+                extraction_method='pdfminer'
+            )
     
     def _extract_word_text(self, word_data: bytes) -> DocumentExtractionResult:
         """Extract text from Word documents using python-docx and fallbacks."""

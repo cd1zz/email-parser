@@ -5,6 +5,8 @@ import base64
 import os
 import time
 import uuid
+import sys
+import warnings
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional, Tuple
 
@@ -36,8 +38,130 @@ DEFAULT_CONFIG = {
 # Global parser instance (for potential reuse to reduce cold starts)
 _parser_cache = {}
 
+# Environment validation results (cached)
+_environment_validated = False
+_environment_issues = []
+
+def validate_environment():
+    """
+    Validate the Python environment and libraries for optimal compatibility.
+    This helps users understand potential issues and provides guidance.
+    """
+    global _environment_validated, _environment_issues
+    
+    if _environment_validated:
+        return _environment_issues
+    
+    issues = []
+    
+    # Check Python version
+    python_version = sys.version_info
+    if python_version.major != 3 or python_version.minor != 10:
+        issues.append({
+            "severity": "warning" if python_version.minor in [8, 9, 11, 12] else "error",
+            "component": "python_version",
+            "message": f"Python {python_version.major}.{python_version.minor} detected. "
+                      f"This function is optimized for Python 3.10. "
+                      f"Consider using Python 3.10 for best compatibility.",
+            "recommendation": "Install Python 3.10 and recreate your virtual environment"
+        })
+    
+    # Test critical library imports
+    library_tests = [
+        ("pdfminer.six", "from pdfminer.high_level import extract_text", "PDF text extraction"),
+        ("pandas", "import pandas", "Excel document processing"),
+        ("numpy", "import numpy", "Data processing (required by pandas)"),
+        ("extract_msg", "import extract_msg", "Outlook .msg file parsing"),
+        ("html2text", "import html2text", "HTML to text conversion"),
+        ("azure_functions", "import azure.functions", "Azure Functions runtime")
+    ]
+    
+    for lib_name, import_statement, purpose in library_tests:
+        try:
+            exec(import_statement)
+        except ImportError as e:
+            severity = "error" if lib_name in ["azure_functions"] else "warning"
+            issues.append({
+                "severity": severity,
+                "component": lib_name,
+                "message": f"Failed to import {lib_name} ({purpose}): {str(e)}",
+                "recommendation": f"Install {lib_name} with: pip install {lib_name}"
+            })
+        except Exception as e:
+            # Special handling for known issues
+            if "DLL load failed" in str(e) and "pdfminer" in str(e):
+                issues.append({
+                    "severity": "error",
+                    "component": "pdfminer.six",
+                    "message": f"pdfminer has DLL/Rust compatibility issues: {str(e)}",
+                    "recommendation": "Downgrade to pdfminer.six==20211012 (no Rust dependencies)"
+                })
+            elif "numpy" in str(e) and "source directory" in str(e):
+                issues.append({
+                    "severity": "error", 
+                    "component": "numpy",
+                    "message": f"numpy environment issue: {str(e)}",
+                    "recommendation": "Reinstall numpy with: pip install --force-reinstall numpy==1.24.4"
+                })
+            else:
+                issues.append({
+                    "severity": "warning",
+                    "component": lib_name,
+                    "message": f"Unexpected error importing {lib_name}: {str(e)}",
+                    "recommendation": f"Check {lib_name} installation and Python environment"
+                })
+    
+    # Check for version conflicts
+    try:
+        import pdfminer
+        if hasattr(pdfminer, '__version__'):
+            version = pdfminer.__version__
+            if version and int(version.split('.')[0]) >= 2025:
+                issues.append({
+                    "severity": "warning",
+                    "component": "pdfminer.six",
+                    "message": f"pdfminer.six version {version} may have Rust dependencies. "
+                              "If you encounter DLL errors, consider downgrading.",
+                    "recommendation": "Use: pip install pdfminer.six==20211012 for maximum compatibility"
+                })
+    except:
+        pass
+    
+    _environment_validated = True
+    _environment_issues = issues
+    
+    # Log environment status
+    if not issues:
+        logging.info("✅ Environment validation passed - all libraries compatible")
+    else:
+        error_count = sum(1 for issue in issues if issue["severity"] == "error")
+        warning_count = sum(1 for issue in issues if issue["severity"] == "warning")
+        
+        if error_count > 0:
+            logging.error(f"❌ Environment validation found {error_count} errors, {warning_count} warnings")
+            for issue in issues:
+                if issue["severity"] == "error":
+                    logging.error(f"  ERROR - {issue['component']}: {issue['message']}")
+        else:
+            logging.warning(f"⚠️ Environment validation found {warning_count} warnings")
+            
+        for issue in issues:
+            if issue["severity"] == "warning":
+                logging.warning(f"  WARNING - {issue['component']}: {issue['message']}")
+    
+    return issues
+
 def get_parser(config: Dict[str, Any]) -> Any:
     """Get or create an email parser with the given configuration."""
+    # Validate environment on first parser creation
+    env_issues = validate_environment()
+    
+    # Check for critical errors that would prevent parser creation
+    critical_errors = [issue for issue in env_issues if issue["severity"] == "error"]
+    if critical_errors:
+        error_details = "; ".join([f"{issue['component']}: {issue['message']}" for issue in critical_errors])
+        raise RuntimeError(f"Cannot create parser due to environment issues: {error_details}")
+    
     # Create a cache key based on configuration
     cache_key = f"{config['enable_url_analysis']}_{config['enable_url_expansion']}_{config['enable_document_processing']}"
     
@@ -155,7 +279,7 @@ def email_parse(req: func.HttpRequest) -> func.HttpResponse:
         
         logging.info(f"Processing email: size={len(email_data)} bytes, filename={filename}")
         
-        # Get parser instance
+        # Get parser instance (this will validate environment)
         parser = get_parser(config)
         
         # Parse the email
@@ -195,6 +319,16 @@ def email_parse(req: func.HttpRequest) -> func.HttpResponse:
             body=json.dumps(error_response, default=str),
             mimetype="application/json",
             status_code=400
+        )
+        
+    except RuntimeError as e:
+        # Environment validation errors
+        logging.error(f"Request {request_id} environment error: {e}")
+        error_response = ErrorHandler.handle_dependency_error(str(e), request_id)
+        return func.HttpResponse(
+            body=json.dumps(error_response, default=str),
+            mimetype="application/json",
+            status_code=503
         )
         
     except TimeoutError as e:
@@ -246,22 +380,47 @@ def _truncate_document_text(result: dict, text_limit: int) -> dict:
 
 @app.route(route="health", methods=["GET"])
 def health_check(req: func.HttpRequest) -> func.HttpResponse:
-    """Health check endpoint for monitoring."""
+    """Health check endpoint for monitoring with environment validation."""
     try:
+        # Validate environment
+        env_issues = validate_environment()
+        
         # Test parser creation
         test_config = DEFAULT_CONFIG.copy()
         test_config["enable_url_expansion"] = False  # Avoid external dependencies in health check
-        parser = get_parser(test_config)
+        
+        parser_available = False
+        parser_error = None
+        
+        try:
+            parser = get_parser(test_config)
+            parser_available = parser is not None
+        except Exception as e:
+            parser_error = str(e)
         
         # Check optional library availability
         libraries_status = _check_library_availability()
         
+        # Determine overall health status
+        critical_errors = [issue for issue in env_issues if issue["severity"] == "error"]
+        health_status = "healthy" if not critical_errors and parser_available else "degraded"
+        if critical_errors:
+            health_status = "unhealthy"
+        
         health_data = {
-            "status": "healthy",
+            "status": health_status,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "version": "1.0.0",
-            "parser_available": parser is not None,
+            "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            "parser_available": parser_available,
+            "parser_error": parser_error,
             "libraries": libraries_status,
+            "environment_validation": {
+                "total_issues": len(env_issues),
+                "errors": [issue for issue in env_issues if issue["severity"] == "error"],
+                "warnings": [issue for issue in env_issues if issue["severity"] == "warning"],
+                "recommendations": [issue["recommendation"] for issue in env_issues]
+            },
             "configuration": {
                 "max_file_size_mb": DEFAULT_CONFIG["max_file_size_mb"],
                 "function_timeout_seconds": DEFAULT_CONFIG["function_timeout_seconds"],
@@ -270,10 +429,12 @@ def health_check(req: func.HttpRequest) -> func.HttpResponse:
             }
         }
         
+        status_code = 200 if health_status == "healthy" else 503
+        
         return func.HttpResponse(
             body=json.dumps(health_data, default=str),
             mimetype="application/json",
-            status_code=200
+            status_code=status_code
         )
         
     except Exception as e:
@@ -294,48 +455,44 @@ def _check_library_availability() -> Dict[str, bool]:
     """Check availability of optional libraries."""
     libraries = {}
     
-    # Check pandas
-    try:
-        import pandas
-        libraries["pandas"] = True
-    except ImportError:
-        libraries["pandas"] = False
+    library_tests = [
+        ("pandas", "import pandas"),
+        ("pdfminer", "from pdfminer.high_level import extract_text"),
+        ("python_docx", "from docx import Document"),
+        ("extract_msg", "import extract_msg"),
+        ("html2text", "import html2text"),
+        ("openpyxl", "import openpyxl"),
+        ("xlrd", "import xlrd"),
+        ("requests", "import requests")
+    ]
     
-    # Check pdfminer
-    try:
-        from pdfminer.high_level import extract_text
-        libraries["pdfminer"] = True
-    except ImportError:
-        libraries["pdfminer"] = False
-    
-    # Check python-docx
-    try:
-        from docx import Document
-        libraries["python_docx"] = True
-    except ImportError:
-        libraries["python_docx"] = False
-    
-    # Check extract-msg
-    try:
-        import extract_msg
-        libraries["extract_msg"] = True
-    except ImportError:
-        libraries["extract_msg"] = False
-    
-    # Check html2text
-    try:
-        import html2text
-        libraries["html2text"] = True
-    except ImportError:
-        libraries["html2text"] = False
+    for lib_name, import_statement in library_tests:
+        try:
+            exec(import_statement)
+            libraries[lib_name] = True
+        except ImportError:
+            libraries[lib_name] = False
+        except Exception:
+            libraries[lib_name] = False
     
     return libraries
 
 @app.route(route="config", methods=["GET"])
 def get_configuration(req: func.HttpRequest) -> func.HttpResponse:
-    """Get current default configuration."""
+    """Get current default configuration with environment status."""
+    
+    # Include environment validation in config response
+    env_issues = validate_environment()
+    
     config_info = {
         "default_configuration": DEFAULT_CONFIG,
+        "environment_status": {
+            "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            "recommended_python_version": "3.10.x",
+            "environment_issues": env_issues,
+            "total_issues": len(env_issues),
+            "has_critical_errors": any(issue["severity"] == "error" for issue in env_issues)
+        },
         "environment_variables": {
             "LOG_LEVEL": os.getenv("LOG_LEVEL", "not_set"),
             "MAX_FILE_SIZE_MB": os.getenv("MAX_FILE_SIZE_MB", "not_set"),
