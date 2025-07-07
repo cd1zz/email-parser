@@ -24,7 +24,7 @@ def create_email_parser(
     expansion_timeout: int = 5,
     enable_document_processing: bool = True,
 ):
-    """Factory function to create a fully configured EmailParser with document processing."""
+    """Factory function to create a fully configured EmailParser with Proofpoint support."""
     # Setup logging
     logging.basicConfig(
         level=log_level,
@@ -47,24 +47,26 @@ def create_email_parser(
             expansion_timeout=expansion_timeout,
         )
 
-    # Create structure extractor with document processing option
-    original_structure_extractor = EmailStructureExtractor(
+    # Create base structure extractor
+    base_structure_extractor = EmailStructureExtractor(
         logger,
         content_analyzer,
         html_converter,
         url_analyzer,
         enable_document_processing=enable_document_processing,
     )
+    
+    # FIXED: Wrap with Proofpoint detector
     structure_extractor = EnhancedEmailStructureExtractor(
-        original_structure_extractor,
+        base_structure_extractor,
         logger,
     )
 
-    # Create parsers in order of preference (most specific first)
+    # Create parsers in order of preference
     parsers = [
         MsgFormatParser(logger, content_normalizer, html_converter, content_analyzer),
         MboxFormatParser(logger),
-        EmlFormatParser(logger),  # EML last as it's the fallback
+        EmlFormatParser(logger),
     ]
 
     return EmailParser(parsers, structure_extractor, logger)
