@@ -19,7 +19,6 @@ obj/
 
 # Azure deployment files
 .azure/
-.vscode/
 
 # Function runtime files
 .azurefunctions/
@@ -227,7 +226,7 @@ images_*/
 # ============================================================================
 
 # IDEs
-.vscode/
+
 .idea/
 *.swp
 *.swo
