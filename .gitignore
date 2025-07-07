@@ -335,7 +335,7 @@ credentials.json
 *.temp
 
 # Archive files (unless specifically needed)
-*.zip
+#*.zip
 *.tar.gz
 *.rar
 *.7z
