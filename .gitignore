@@ -7,6 +7,7 @@ zArchive/*
 test_emails/*
 *.log
 email_parser.log
+.vscode/*
 # Local settings (contains secrets and connection strings)
 local.settings.json
 

@@ -252,6 +252,7 @@ def extract_email_data_and_config(req: func.HttpRequest) -> Tuple[bytes, Optiona
     
     return email_data, filename, config
 
+@app.function_name("email_parse")
 @app.route(route="", methods=["POST"])  # route must be empty when used with a logicapp
 def email_parse(req: func.HttpRequest) -> func.HttpResponse:
     """
