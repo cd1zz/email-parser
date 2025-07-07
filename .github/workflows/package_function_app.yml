@@ -46,3 +46,15 @@ jobs:
           files: deployment.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Update WEBSITE_RUN_FROM_PACKAGE in functionapp_azuredeploy.json
+        run: |
+          sed -i 's#https://github.com/.*/deployment.zip#https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/deployment.zip#g' function-app/functionapp_azuredeploy.json
+
+      - name: Commit updated Azure deploy JSON
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add function-app/functionapp_azuredeploy.json
+          git commit -m "Update WEBSITE_RUN_FROM_PACKAGE to ${{ steps.version.outputs.tag }}"
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} HEAD:main
