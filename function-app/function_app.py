@@ -252,7 +252,7 @@ def extract_email_data_and_config(req: func.HttpRequest) -> Tuple[bytes, Optiona
     
     return email_data, filename, config
 
-@app.route(route="email-parse", methods=["POST"])
+@app.route(route="email_parse", methods=["POST"])  # must match function name when used with a logicapp
 def email_parse(req: func.HttpRequest) -> func.HttpResponse:
     """
     Azure Function to parse email files and extract structure, URLs, and document content.
