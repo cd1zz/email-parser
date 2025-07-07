@@ -77,8 +77,9 @@
                         },
                         {
                             "name": "WEBSITE_RUN_FROM_PACKAGE",
+
                             "value": "https://github.com/cd1zz/email-parser/releases/download/function-app-latest/deployment.zip"
-                        },
+                            },
                         {
                             "name": "AzureWebJobsStorage",
                             "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', toLower(variables('StorageAccountName')), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', toLower(variables('StorageAccountName'))), '2023-01-01').keys[0].value, ';EndpointSuffix=core.windows.net')]"
