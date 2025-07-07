@@ -200,7 +200,7 @@ cython_debug/
 *.msg
 
 # Parser output files
-*.json
+#*.json
 output/
 temp_files/
 extracted_attachments/

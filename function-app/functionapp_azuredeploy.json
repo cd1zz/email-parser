@@ -1,0 +1,103 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "FunctionAppName": {
+            "defaultValue": "emlparse",
+            "minLength": 3,
+            "maxLength": 24,
+            "type": "String",
+            "metadata": {
+                "description": "Enter the base name for the Function App."
+            }
+        }
+    },
+    "variables": {
+        "resourceToken": "[toLower(uniqueString(subscription().id, resourceGroup().name, resourceGroup().location))]",
+        "FunctionAppName": "[concat(parameters('FunctionAppName'), substring(variables('resourceToken'), 0, 6))]",
+        "StorageAccountName": "[concat(toLower(parameters('FunctionAppName')), substring(variables('resourceToken'), 0, 6))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Storage/storageAccounts",
+            "apiVersion": "2023-01-01",
+            "name": "[variables('StorageAccountName')]",
+            "location": "[resourceGroup().location]",
+            "sku": {
+                "name": "Standard_LRS"
+            },
+            "kind": "StorageV2",
+            "properties": { "minimumTlsVersion": "TLS1_2" }
+        },
+        {
+            "type": "Microsoft.Web/serverfarms",
+            "apiVersion": "2018-02-01",
+            "name": "[variables('FunctionAppName')]",
+            "location": "[resourceGroup().location]",
+            "sku": {
+                "name": "Y1",
+                "tier": "Dynamic"
+            },
+            "kind": "functionapp,linux",
+            "properties": {
+                "name": "[variables('FunctionAppName')]",
+                "workerSize": "0",
+                "workerSizeId": "0",
+                "numberOfWorkers": "1",
+                "reserved": true
+            }
+        },
+        {
+            "type": "Microsoft.Web/sites",
+            "apiVersion": "2023-12-01",
+            "name": "[variables('FunctionAppName')]",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[resourceId('Microsoft.Storage/storageAccounts', variables('StorageAccountName'))]"
+            ],
+            "kind": "functionapp,linux",
+            "identity": {
+                "type": "SystemAssigned"
+            },
+            "properties": {
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('FunctionAppName'))]",
+                "httpsOnly": true,
+                "reserved": true,
+                "siteConfig": {
+                    "linuxFxVersion": "python|3.10",
+                    "minTlsVersion": "1.2",
+                    "appSettings": [
+                        {
+                            "name": "FUNCTIONS_EXTENSION_VERSION",
+                            "value": "~4"
+                        },
+                        {
+                            "name": "FUNCTIONS_WORKER_RUNTIME",
+                            "value": "python"
+                        },
+                        {
+                            "name": "WEBSITE_RUN_FROM_PACKAGE",
+                            "value": "https://github.com/cd1zz/email-parser/raw/refs/heads/main/function-app/deployment.zip"
+                        },
+                        {
+                            "name": "AzureWebJobsStorage",
+                            "value": "[concat('DefaultEndpointsProtocol=https;AccountName=', toLower(variables('StorageAccountName')), ';AccountKey=', listKeys(resourceId('Microsoft.Storage/storageAccounts', toLower(variables('StorageAccountName'))), '2023-01-01').keys[0].value, ';EndpointSuffix=core.windows.net')]"
+                        }
+                    ]
+                }
+
+            }
+
+        }
+    ],
+    "outputs": {
+        "functionAppUrl": {
+            "type": "String",
+            "value": "[concat('https://', variables('FunctionAppName'), '.azurewebsites.net')]"
+        },
+        "functionAppName": {
+            "type": "String",
+            "value": "[variables('FunctionAppName')]"
+        }
+    }
+}
