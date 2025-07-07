@@ -682,7 +682,6 @@ class EmailStructureExtractor:
                 validation_notes.append(f"Found: {note}")
         
         # HTML tag counting
-        import re
         html_tags = re.findall(r'<\w+[^>]*>', content_sample)
         closing_tags = re.findall(r'</\w+>', content_sample)
         
@@ -707,7 +706,7 @@ class EmailStructureExtractor:
             (content_sample.startswith('Hello '), 0.5, 'Plain text greeting'),
             (content_sample.startswith('Hi '), 0.5, 'Casual greeting'),
             ('\n\n' in content and '<' not in content[:200], 0.7, 'Paragraph breaks without HTML'),
-            (content.count('\n') > 3 and not '<' in content, 0.6, 'Multiple line breaks, no HTML'),
+            (content.count('\n') > 3 and '<' not in content, 0.6, 'Multiple line breaks, no HTML'),
         ]
         
         for condition, score, note in plain_indicators:
@@ -738,14 +737,14 @@ class EmailStructureExtractor:
                 # High confidence detection - use detected type
                 is_mismatch = True
                 effective_type = detected_type
-                validation_notes.append(f"High confidence mismatch - using detected type")
+                validation_notes.append("High confidence mismatch - using detected type")
             elif confidence >= 0.5:
                 # Medium confidence - flag as mismatch but use declared type
                 is_mismatch = True
-                validation_notes.append(f"Medium confidence mismatch - keeping declared type")
+                validation_notes.append("Medium confidence mismatch - keeping declared type")
             else:
                 # Low confidence - just log the uncertainty
-                validation_notes.append(f"Low confidence detection - using declared type")
+                validation_notes.append("Low confidence detection - using declared type")
         
         return {
             'declared_type': declared_type,
@@ -818,7 +817,6 @@ class EmailStructureExtractor:
     def _try_decode_base64_email(self, base64_content: str) -> Optional[str]:
         """Try to decode base64 content and check if it's an email."""
         try:
-            import re
             # Clean up the base64 string - remove whitespace
             clean_b64 = re.sub(r'\s+', '', base64_content.strip())
             
@@ -881,7 +879,6 @@ class EmailStructureExtractor:
         # Method 2: Parse Content-Disposition header manually
         content_disposition = part.get('Content-Disposition', '')
         if content_disposition:
-            import re
             filename_match = re.search(r'filename\s*=\s*["\']?([^"\';\r\n]+)["\']?', content_disposition, re.IGNORECASE)
             if filename_match:
                 filename = filename_match.group(1).strip().strip('\x00')
