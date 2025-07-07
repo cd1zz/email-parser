@@ -34,27 +34,26 @@ jobs:
           cd function-app
           zip -r ../deployment.zip . -x "*.git*" "*.github*" "__pycache__/*" "deployment.zip"
 
-      - name: Generate timestamped version tag
-        id: version
-        run: echo "tag=function-app-$(date +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
-
-      - name: Upload to GitHub Release
+      - name: Upload deployment.zip to GitHub Release (fixed tag)
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ steps.version.outputs.tag }}
-          name: Release ${{ steps.version.outputs.tag }}
+          tag_name: function-app-latest
+          name: Release function-app-latest
           files: deployment.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update WEBSITE_RUN_FROM_PACKAGE in functionapp_azuredeploy.json
+      # Optional: keep for future versioning if needed
+      - name: (Optional) Update WEBSITE_RUN_FROM_PACKAGE in Azure JSON
+        if: false  # set to true if re-enabling versioned URLs
         run: |
-          sed -i 's#https://github.com/.*/deployment.zip#https://github.com/${{ github.repository }}/releases/download/${{ steps.version.outputs.tag }}/deployment.zip#g' function-app/functionapp_azuredeploy.json
+          sed -i 's#https://github.com/.*/deployment.zip#https://github.com/${{ github.repository }}/releases/download/function-app-latest/deployment.zip#g' function-app/functionapp_azuredeploy.json
 
-      - name: Commit updated Azure deploy JSON
+      - name: Commit updated Azure deploy JSON (optional)
+        if: false
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
           git add function-app/functionapp_azuredeploy.json
-          git commit -m "Update WEBSITE_RUN_FROM_PACKAGE to ${{ steps.version.outputs.tag }}"
+          git commit -m "Update WEBSITE_RUN_FROM_PACKAGE to latest"
           git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} HEAD:main
