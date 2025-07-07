@@ -1,0 +1,42 @@
+name: Package Azure Function App
+
+on:
+  push:
+    paths:
+      - 'function-app/**'
+    branches:
+      - main
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: function-app
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install requirements into .python_packages/
+        run: |
+          pip install -r requirements.txt --target .python_packages
+
+      - name: Create deployment zip
+        run: |
+          zip -r deployment.zip . -x "*.git*" "*.github*" "__pycache__/*"
+
+      - name: Push deployment.zip to repo
+        if: github.ref == 'refs/heads/main'
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add deployment.zip
+          git commit -m "Add deployment.zip after push"
+          git push
