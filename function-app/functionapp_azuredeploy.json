@@ -77,7 +77,7 @@
                         },
                         {
                             "name": "WEBSITE_RUN_FROM_PACKAGE",
-                            "value": "https://github.com/cd1zz/email-parser/releases/download/function-app-20250707-051920/deployment.zip"
+                            "value": "https://github.com/cd1zz/email-parser/releases/download/function-app-20250707-053302/deployment.zip"
                         },
                         {
                             "name": "AzureWebJobsStorage",
