@@ -11,15 +11,11 @@ permissions:
   contents: write
 
 jobs:
-  package:
+  build-and-release:
     runs-on: ubuntu-latest
 
-    defaults:
-      run:
-        working-directory: function-app
-
     steps:
-      - name: Checkout code
+      - name: Checkout repo
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -27,19 +23,26 @@ jobs:
         with:
           python-version: '3.10'
 
-      - name: Install dependencies into .python_packages/lib/site-packages/
+      - name: Install dependencies to .python_packages/lib/site-packages/
+        working-directory: function-app
         run: |
+          mkdir -p .python_packages/lib/site-packages
           pip install -r requirements.txt --target .python_packages/lib/site-packages
 
-      - name: Create deployment.zip
+      - name: Create deployment.zip outside source dir
         run: |
-          zip -r deployment.zip . -x "*.git*" "*.github*" "__pycache__/*" "deployment.zip"
+          cd function-app
+          zip -r ../deployment.zip . -x "*.git*" "*.github*" "__pycache__/*" "deployment.zip"
 
-      - name: Push deployment.zip to repo
-        if: github.ref == 'refs/heads/main'
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-          git add deployment.zip
-          git commit -m "Add deployment.zip after push"
-          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} HEAD:main
+      - name: Generate timestamped version tag
+        id: version
+        run: echo "tag=function-app-$(date +'%Y%m%d-%H%M%S')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Release ${{ steps.version.outputs.tag }}
+          files: deployment.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
