@@ -33,7 +33,7 @@ jobs:
 
       - name: Create deployment.zip
         run: |
-          zip -r deployment.zip . -x "*.git*" "*.github*" "__pycache__/*"
+          zip -r deployment.zip . -x "*.git*" "*.github*" "__pycache__/*" "deployment.zip"
 
       - name: Push deployment.zip to repo
         if: github.ref == 'refs/heads/main'
