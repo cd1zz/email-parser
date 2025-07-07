@@ -5,13 +5,14 @@
 import email
 import base64
 import re
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple, Set
 from email.message import Message
 from datetime import datetime
 import logging
 
 from .converters import HtmlToTextConverter
 from .extractors.document_extractor import DocumentProcessor
+from .extractors.domain_extractor import DomainExtractor
 
 
 class EmailStructureExtractor:
@@ -30,6 +31,7 @@ class EmailStructureExtractor:
         self.html_converter = html_converter
         self.url_analyzer = url_analyzer
         self.document_processor = DocumentProcessor(logger, url_analyzer)
+        self.domain_extractor = DomainExtractor(logger)
         self.enable_document_processing = enable_document_processing
 
     def _detect_and_process_proofpoint(self, message: Message) -> Optional[Message]:
@@ -404,9 +406,11 @@ class EmailStructureExtractor:
             f"Built email at depth {depth}: {len(attachments)} attachments, {len(nested_emails)} nested emails"
         )
 
-        # Extract URLs if analyzer available and at root level
+        # Extract URLs and domains if analyzer available and at root level
         if self.url_analyzer and depth == 0:
-            email_obj["urls"] = self._extract_urls_streamlined(email_obj)
+            urls, domains = self._extract_urls_streamlined(email_obj)
+            email_obj["urls"] = urls
+            email_obj["url_domains"] = domains
 
         return email_obj
 
@@ -726,9 +730,11 @@ class EmailStructureExtractor:
 
         return analysis
 
-    def _extract_urls_streamlined(self, email_obj: Dict[str, Any]) -> List[str]:
-        """Extract URLs for streamlined format including document URLs."""
-        all_urls = []
+    def _extract_urls_streamlined(self, email_obj: Dict[str, Any]) -> Tuple[List[str], List[str]]:
+        """Extract URLs and domains for streamlined format."""
+
+        all_urls: List[str] = []
+        domain_set: Set[str] = set()
 
         try:
             if self.url_analyzer:
@@ -742,6 +748,7 @@ class EmailStructureExtractor:
 
                 analysis = self.url_analyzer.analyze_email_urls(temp_structure)
                 all_urls.extend(analysis.final_urls)
+                domain_set.update(analysis.extraction_result.domains)
 
                 # Add URLs from document extracts if processing enabled
                 if self.enable_document_processing:
@@ -750,11 +757,23 @@ class EmailStructureExtractor:
                         for attachment in email_data.get("attachments", []):
                             doc_urls = attachment.get("document_urls", [])
                             all_urls.extend(doc_urls)
+                            for u in doc_urls:
+                                domain = self.url_analyzer.url_extractor._extract_domain(u)
+                                if domain:
+                                    domain_set.add(domain)
 
                         for nested_email in email_data.get("nested_emails", []):
                             collect_document_urls(nested_email)
 
                     collect_document_urls(email_obj)
+
+                # Extract bare domains from body text
+                body_text = email_obj.get("body", {}).get("text") or ""
+                body_html = email_obj.get("body", {}).get("html") or ""
+                domain_result = self.domain_extractor.extract_domains_from_text(
+                    body_text + "\n" + body_html
+                )
+                domain_set.update(domain_result.domains)
 
                 # Remove duplicates while preserving order
                 seen = set()
@@ -764,12 +783,12 @@ class EmailStructureExtractor:
                         seen.add(url)
                         unique_urls.append(url)
 
-                return unique_urls
+                return unique_urls, sorted(domain_set)
 
         except Exception as e:
             self.logger.error(f"Error extracting URLs: {e}")
 
-        return []
+        return [], []
 
     def _generate_summary(
         self, email_obj: Dict[str, Any], doc_analysis: Dict[str, Any] = None
@@ -838,6 +857,10 @@ class EmailStructureExtractor:
                                 domains.add(domain)
                     except Exception:
                         pass
+
+            # Add domains extracted from URLs in this email
+            for domain in email_entry.get("url_domains", []):
+                domains.add(domain)
 
         # Collect attachment types from all emails
         attachment_types = set()
