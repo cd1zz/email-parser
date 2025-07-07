@@ -1,0 +1,27 @@
+# Azure Functions Core
+azure-functions>=1.11.0
+
+# Core email processing (required)
+# Note: These should be available since they're Python standard library or lightweight
+
+# Optional libraries for enhanced functionality
+# Include these for full feature support, but the parser will gracefully degrade if missing
+
+# Document processing
+pandas>=1.3.0
+openpyxl>=3.0.0  
+xlrd>=2.0.0
+pdfminer.six>=20211012
+python-docx>=0.8.11
+
+# MSG file support
+extract-msg>=0.28.0
+
+# HTML processing  
+html2text>=2020.1.16
+
+# URL processing
+requests>=2.25.0
+
+# Text processing - removed due to version conflicts with extract-msg
+# textract>=1.6.3  # Commented out - conflicts with extract-msg>=0.54.1
