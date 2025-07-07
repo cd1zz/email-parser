@@ -41,6 +41,12 @@ standalone/
 │   ├── msg_diagnostic.py               # MSG file diagnostic analysis
 │   └── proofpoint_diagnostic.py        # Proofpoint email testing
 └── test_emails/                        # Sample files for testing
+
+function-app/
+├── function_app.py                    # Azure Functions HTTP app
+├── requirements.txt                   # Dependencies for the function
+├── email_parser/                      # Same parser packaged for Functions
+└── shared/                            # Request/response utilities
 ```
 
 ### Key Components AI Agents Should Understand
@@ -373,19 +379,20 @@ When AI agents create PRs, ensure they:
 
 ## Programmatic Checks for AI Agents
 
-Before submitting code, AI agents should run:
+Before submitting code, AI agents should run the following checks on both the
+`standalone` and `function-app` code:
 
 ```bash
 # Code quality checks
-python -m flake8 email_parser/ --max-line-length=88
-python -m black email_parser/ --check
-python -m isort email_parser/ --check-only
+python -m flake8 standalone/email_parser function-app --max-line-length=88
+python -m black standalone/email_parser function-app --check
+python -m isort standalone/email_parser function-app --check-only
 
 # Type checking
-python -m mypy email_parser/
+python -m mypy standalone/email_parser function-app/email_parser function-app/shared
 
 # Security checks
-python -m bandit -r email_parser/
+python -m bandit -r standalone/email_parser function-app/email_parser function-app/shared
 
 # Test suite
 python -m pytest tests/ --cov=email_parser --cov-report=html
