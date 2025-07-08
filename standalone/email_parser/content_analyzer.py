@@ -108,8 +108,15 @@ class ContentAnalyzer:
             analysis.detected_type = detected_type
             analysis.confidence = confidence
             
+            # Enhanced detection for OLE compound documents (MSG, DOC, XLS)
+            if detected_type in ["doc", "xls", "msg"]:
+                ole_type = self._detect_ole_document_type(data, filename)
+                if ole_type:
+                    analysis.detected_type = ole_type
+                    analysis.confidence = min(confidence + 0.3, 1.0)
+            
             # Enhanced detection for Office documents
-            if detected_type in ["docx", "xlsx", "pptx"] or (detected_type == "zip" and filename):
+            elif detected_type in ["docx", "xlsx", "pptx"] or (detected_type == "zip" and filename):
                 office_type = self._detect_office_type(data, filename)
                 if office_type:
                     analysis.detected_type = office_type
@@ -187,6 +194,89 @@ class ContentAnalyzer:
             indicators = office_indicators.get(office_type, [])
             return any(indicator in content_str for indicator in indicators)
             
+        except Exception:
+            return False
+
+    def _detect_ole_document_type(self, data: bytes, filename: str = None) -> Optional[str]:
+        """Distinguish between MSG, DOC, and XLS files (all OLE compound documents)."""
+        try:
+            if not data.startswith(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'):
+                return None
+            
+            # Use filename as strong hint if available
+            if filename:
+                filename_lower = filename.lower()
+                if filename_lower.endswith('.msg'):
+                    if self._is_msg_file(data):
+                        return 'msg'
+                elif filename_lower.endswith(('.doc', '.dot')):
+                    if self._is_word_document(data):
+                        return 'doc'
+                elif filename_lower.endswith(('.xls', '.xlt')):
+                    if self._is_excel_document(data):
+                        return 'xls'
+            
+            # Analyze OLE structure to distinguish file types
+            if self._is_msg_file(data):
+                return 'msg'
+            elif self._is_word_document(data):
+                return 'doc'
+            elif self._is_excel_document(data):
+                return 'xls'
+            
+            return 'doc'  # Default for compatibility
+            
+        except Exception as e:
+            self.logger.debug(f"Error in OLE document type detection: {e}")
+            return None
+
+    def _is_msg_file(self, data: bytes) -> bool:
+        """Check if OLE compound document is a MSG file."""
+        try:
+            content_str = data[:8192].decode('latin-1', errors='ignore')
+            
+            msg_indicators = [
+                '\x00\x00\x1f\x00',  # Subject property
+                '\x00\x00\x0c\x00',  # From property  
+                '\x00\x00\x1a\x00',  # To property
+                '__properties_version1.0',
+                '__recip_version1.0',
+                '__attach_version1.0',
+                '\x1f\x00\x1e\x00',
+                '\x40\x00\x1e\x00',
+                '\x1f\x00\x01\x00'
+            ]
+            
+            msg_score = sum(1 for indicator in msg_indicators if indicator in content_str)
+            office_markers = ['Microsoft Office', 'Word.Document', 'Worksheet']
+            office_score = sum(1 for marker in office_markers if marker in content_str)
+            
+            return msg_score >= 2 and office_score == 0
+            
+        except Exception:
+            return False
+
+    def _is_word_document(self, data: bytes) -> bool:
+        """Check if OLE compound document is a Word document."""
+        try:
+            content_str = data[:8192].decode('latin-1', errors='ignore')
+            word_indicators = [
+                'Microsoft Office Word', 'Word.Document', 'WordDocument',
+                '\x00WordDocument', 'Word 97', 'Word 2000'
+            ]
+            return any(indicator in content_str for indicator in word_indicators)
+        except Exception:
+            return False
+
+    def _is_excel_document(self, data: bytes) -> bool:
+        """Check if OLE compound document is an Excel document."""
+        try:
+            content_str = data[:8192].decode('latin-1', errors='ignore')
+            excel_indicators = [
+                'Microsoft Office Excel', 'Worksheet', 'Workbook',
+                '\x00Workbook', 'Excel', 'Biff'
+            ]
+            return any(indicator in content_str for indicator in excel_indicators)
         except Exception:
             return False
 
