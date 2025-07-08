@@ -334,6 +334,25 @@ class MsgFormatParser(EmailFormatParser):
         except Exception as e:
             self.logger.error(f"Error processing MSG attachments: {e}")
     
+    def _is_eml_content(self, data: bytes) -> bool:
+        """Check if data appears to be EML format by examining headers."""
+        try:
+            # Check first 1KB for email headers
+            sample = data[:1024]
+            try:
+                text = sample.decode('utf-8', errors='ignore')
+            except:
+                text = sample.decode('latin-1', errors='ignore')
+            
+            # Look for common email headers
+            email_headers = ['From:', 'To:', 'Subject:', 'Date:', 'Message-ID:', 'MIME-Version:']
+            headers_found = sum(1 for header in email_headers if header in text)
+            
+            return headers_found >= 2
+        except Exception as e:
+            self.logger.debug(f"Error checking EML content: {e}")
+            return False
+    
     def _extract_attachment_data(self, attachment) -> Optional[bytes]:
         """Extract raw data from MSG attachment for content analysis."""
         try:
