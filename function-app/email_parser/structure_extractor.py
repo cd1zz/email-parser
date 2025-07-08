@@ -1212,9 +1212,13 @@ class EmailStructureExtractor:
 
                 # Check for nested email in attachment
                 if attachment.get("contains_email"):
-                    nested_email = self._extract_nested_email_streamlined(
-                        part, depth + 1
-                    )
+                    # Use already extracted nested email if available to avoid duplication
+                    nested_email = attachment.get("nested_email")
+                    if not nested_email:
+                        # Fallback: extract if not already done
+                        nested_email = self._extract_nested_email_streamlined(
+                            part, depth + 1
+                        )
                     if nested_email:
                         nested_email["source_attachment"] = (
                             filename or f"attachment_{len(attachments)}"
