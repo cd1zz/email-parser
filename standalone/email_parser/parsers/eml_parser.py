@@ -1,6 +1,12 @@
 # ============================================================================
 # email_parser/parsers/eml_parser.py
 # ============================================================================
+"""
+EML format parser for standard RFC822 email files.
+
+This module provides parsing functionality for EML files, which are the
+standard email format used by most email clients and servers.
+"""
 
 import email.parser
 import email.policy
@@ -21,19 +27,52 @@ class EmlFormatParser(EmailFormatParser):
     
     def can_parse(self, data: bytes, filename: Optional[str] = None) -> Tuple[bool, float]:
         """Check if this is an EML file."""
-        # Check for email headers in first 512 bytes
-        header = data[:512]
-        email_headers = [b'Return-Path:', b'Received:', b'From:', b'Message-ID:', b'Date:']
+        # Check for email headers in first 2048 bytes (increased from 512)
+        header = data[:2048]
         
-        header_count = sum(1 for h in email_headers if h in header)
-        if header_count >= 2:
-            return True, 0.8
+        # Common email headers (case-insensitive)
+        email_headers = [
+            b'Return-Path:', b'Received:', b'From:', b'Message-ID:', b'Date:',
+            b'To:', b'Subject:', b'Content-Type:', b'MIME-Version:', 
+            b'X-', b'ARC-Seal:', b'ARC-Message-Signature:'  # Added ARC headers
+        ]
         
-        # Check filename
+        header_count = 0
+        for h in email_headers:
+            # Case-insensitive search
+            if h.lower() in header.lower():
+                header_count += 1
+        
+        # FIXED: More lenient scoring
+        if header_count >= 3:
+            confidence = min(0.9, 0.6 + (header_count * 0.1))  # Start at 0.6, increase with more headers
+            self.logger.debug(f"EML parser found {header_count} headers, confidence: {confidence}")
+            return True, confidence
+        elif header_count >= 2:
+            # Still try to parse if we have at least 2 email headers
+            confidence = 0.7
+            self.logger.debug(f"EML parser found {header_count} headers, confidence: {confidence}")
+            return True, confidence
+        
+        # Check filename as secondary indicator
         if filename and filename.lower().endswith(('.eml', '.email')):
-            return True, 0.6
+            if header_count >= 1:
+                # If filename suggests EML and we have at least 1 header, try it
+                confidence = 0.8
+                self.logger.debug(f"EML parser: filename suggests EML with {header_count} headers, confidence: {confidence}")
+                return True, confidence
+            else:
+                confidence = 0.6
+                self.logger.debug(f"EML parser: filename suggests EML but no clear headers, confidence: {confidence}")
+                return True, confidence
         
-        return False, 0.3  # Default fallback
+        # FIXED: Lower threshold but still try if it looks like email content
+        if header_count >= 1:
+            confidence = 0.5  # Reduced from 0.3 to 0.5 to give it a better chance
+            self.logger.debug(f"EML parser found {header_count} headers, low confidence: {confidence}")
+            return True, confidence
+            
+        return False, 0.0
     
     def parse(self, data: bytes, filename: Optional[str] = None) -> Optional[Message]:
         """Parse EML data."""

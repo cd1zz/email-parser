@@ -1,6 +1,12 @@
 # ============================================================================
 # email_parser/parsers/eml_parser.py
 # ============================================================================
+"""
+EML format parser for standard RFC822 email files.
+
+This module provides parsing functionality for EML files, which are the
+standard email format used by most email clients and servers.
+"""
 
 import email.parser
 import email.policy

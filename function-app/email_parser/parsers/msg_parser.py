@@ -1,6 +1,13 @@
 # ============================================================================
 # email_parser/parsers/msg_parser.py
 # ============================================================================
+"""
+MSG format parser for Microsoft Outlook email files.
+
+This module provides parsing functionality for MSG files, which are Microsoft
+Outlook's proprietary email format based on OLE compound documents.
+Supports nested email parsing and attachment extraction.
+"""
 
 import tempfile
 import os

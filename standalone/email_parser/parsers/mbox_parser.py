@@ -1,6 +1,12 @@
 # ============================================================================
 # email_parser/parsers/mbox_parser.py
 # ============================================================================
+"""
+MBOX format parser for Unix mailbox files.
+
+This module provides parsing functionality for MBOX files, which are the
+traditional Unix mailbox format containing multiple email messages.
+"""
 
 import email.parser
 import email.policy
