@@ -1,7 +1,13 @@
 # ============================================================================
 # email_parser/parsers/proofpoint_detector.py - ENHANCED VERSION
 # ============================================================================
-"""Enhanced Proofpoint email detection with flexible patterns."""
+"""
+Enhanced Proofpoint email detection and unwrapping.
+
+This module provides enhanced email structure extraction with special support
+for Proofpoint-wrapped emails. It can detect and unwrap emails that have been
+processed by Proofpoint email security systems.
+"""
 
 import logging
 import re
