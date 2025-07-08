@@ -5,14 +5,13 @@
 import email
 import base64
 import re
-from typing import Dict, Any, List, Optional, Tuple, Set
+from typing import Dict, Any, List, Optional
 from email.message import Message
 from datetime import datetime
 import logging
 
 from .converters import HtmlToTextConverter
 from .extractors.document_extractor import DocumentProcessor
-from .extractors.domain_extractor import DomainExtractor
 
 
 class EmailStructureExtractor:
@@ -31,7 +30,6 @@ class EmailStructureExtractor:
         self.html_converter = html_converter
         self.url_analyzer = url_analyzer
         self.document_processor = DocumentProcessor(logger, url_analyzer)
-        self.domain_extractor = DomainExtractor(logger)
         self.enable_document_processing = enable_document_processing
 
     def _detect_and_process_proofpoint(self, message: Message) -> Optional[Message]:
@@ -406,11 +404,9 @@ class EmailStructureExtractor:
             f"Built email at depth {depth}: {len(attachments)} attachments, {len(nested_emails)} nested emails"
         )
 
-        # Extract URLs and domains if analyzer available and at root level
+        # Extract URLs if analyzer available and at root level
         if self.url_analyzer and depth == 0:
-            urls, domains = self._extract_urls_streamlined(email_obj)
-            email_obj["urls"] = urls
-            email_obj["url_domains"] = domains
+            email_obj["urls"] = self._extract_urls_streamlined(email_obj)
 
         return email_obj
 
@@ -540,6 +536,11 @@ class EmailStructureExtractor:
                     attachment["type"] = self._categorize_attachment_type(
                         final_content_type, filename
                     )
+                    
+                    # Check if this is actually a MSG file by magic bytes
+                    if payload and payload.startswith(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'):
+                        attachment["mime_type"] = "application/vnd.ms-outlook"
+                        attachment["type"] = "email"
 
                     # NEW: Process document attachments for text extraction
                     if self.enable_document_processing and self._is_document_type(
@@ -560,6 +561,10 @@ class EmailStructureExtractor:
                     attachment["nested_email"] = nested_email
                     self.logger.info(
                         f"Successfully extracted nested email from attachment: {filename}"
+                    )
+                else:
+                    self.logger.warning(
+                        f"Detected nested email but failed to extract: {filename}"
                     )
 
         except Exception as e:
@@ -730,11 +735,9 @@ class EmailStructureExtractor:
 
         return analysis
 
-    def _extract_urls_streamlined(self, email_obj: Dict[str, Any]) -> Tuple[List[str], List[str]]:
-        """Extract URLs and domains for streamlined format."""
-
-        all_urls: List[str] = []
-        domain_set: Set[str] = set()
+    def _extract_urls_streamlined(self, email_obj: Dict[str, Any]) -> List[str]:
+        """Extract URLs for streamlined format including document URLs."""
+        all_urls = []
 
         try:
             if self.url_analyzer:
@@ -748,7 +751,6 @@ class EmailStructureExtractor:
 
                 analysis = self.url_analyzer.analyze_email_urls(temp_structure)
                 all_urls.extend(analysis.final_urls)
-                domain_set.update(analysis.extraction_result.domains)
 
                 # Add URLs from document extracts if processing enabled
                 if self.enable_document_processing:
@@ -757,23 +759,11 @@ class EmailStructureExtractor:
                         for attachment in email_data.get("attachments", []):
                             doc_urls = attachment.get("document_urls", [])
                             all_urls.extend(doc_urls)
-                            for u in doc_urls:
-                                domain = self.url_analyzer.url_extractor._extract_domain(u)
-                                if domain:
-                                    domain_set.add(domain)
 
                         for nested_email in email_data.get("nested_emails", []):
                             collect_document_urls(nested_email)
 
                     collect_document_urls(email_obj)
-
-                # Extract bare domains from body text
-                body_text = email_obj.get("body", {}).get("text") or ""
-                body_html = email_obj.get("body", {}).get("html") or ""
-                domain_result = self.domain_extractor.extract_domains_from_text(
-                    body_text + "\n" + body_html
-                )
-                domain_set.update(domain_result.domains)
 
                 # Remove duplicates while preserving order
                 seen = set()
@@ -783,12 +773,12 @@ class EmailStructureExtractor:
                         seen.add(url)
                         unique_urls.append(url)
 
-                return unique_urls, sorted(domain_set)
+                return unique_urls
 
         except Exception as e:
             self.logger.error(f"Error extracting URLs: {e}")
 
-        return [], []
+        return []
 
     def _generate_summary(
         self, email_obj: Dict[str, Any], doc_analysis: Dict[str, Any] = None
@@ -814,7 +804,7 @@ class EmailStructureExtractor:
             from_addr = email.get("headers", {}).get("from", "")
             to_addr = email.get("headers", {}).get("to", "")
             if from_addr and to_addr:
-                forwarding_chain.append(f"{from_addr} -> {to_addr}")
+                forwarding_chain.append(f"{from_addr} → {to_addr}")
 
             # Process nested emails recursively
             for nested in email.get("nested_emails", []):
@@ -857,10 +847,6 @@ class EmailStructureExtractor:
                                 domains.add(domain)
                     except Exception:
                         pass
-
-            # Add domains extracted from URLs in this email
-            for domain in email_entry.get("url_domains", []):
-                domains.add(domain)
 
         # Collect attachment types from all emails
         attachment_types = set()
@@ -1390,17 +1376,51 @@ class EmailStructureExtractor:
     def _extract_nested_email_streamlined(
         self, part: Message, depth: int
     ) -> Optional[Dict[str, Any]]:
-        """Extract nested email with base64 support - ENHANCED for streamlined format."""
+        """Extract nested email with base64 and MSG support - ENHANCED for streamlined format."""
         try:
             nested_message = None
+            content_type = part.get_content_type()
+            filename = part.get_filename()
 
-            if part.get_content_type() == "message/rfc822":
+            if content_type == "message/rfc822":
                 # Standard RFC822 handling
                 payload_list = part.get_payload()
                 if isinstance(payload_list, list) and len(payload_list) > 0:
                     nested_message = payload_list[0]
                 else:
                     return None
+            elif content_type == "application/vnd.ms-outlook" or (filename and filename.lower().endswith('.msg')):
+                # Handle MSG attachments
+                payload = part.get_payload(decode=True)
+                if isinstance(payload, bytes) and payload.startswith(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'):
+                    self.logger.info(f"Processing nested MSG file: {filename}")
+                    # Use the EmailParser to handle MSG files
+                    from .parser import EmailParser
+                    from .parsers.msg_parser import MsgFormatParser
+                    from .parsers.eml_parser import EmlFormatParser
+                    from .converters import HtmlToTextConverter
+                    from .content_normalizer import ContentNormalizer
+                    
+                    # Create necessary components
+                    content_normalizer = ContentNormalizer(self.logger)
+                    html_converter = HtmlToTextConverter(self.logger)
+                    
+                    # Create MSG parser
+                    msg_parser = MsgFormatParser(
+                        self.logger, 
+                        content_normalizer, 
+                        html_converter, 
+                        self.content_analyzer
+                    )
+                    
+                    # Parse the MSG file directly
+                    nested_message = msg_parser.parse(payload, filename)
+                    if nested_message:
+                        self.logger.info(f"Successfully parsed nested MSG file at depth {depth}")
+                    else:
+                        self.logger.warning(f"Failed to parse nested MSG file: {filename}")
+                else:
+                    self.logger.warning(f"MSG attachment doesn't have valid magic bytes: {filename}")
             else:
                 # ENHANCED: Check for base64-encoded emails first
                 encoding = part.get("Content-Transfer-Encoding", "").lower().strip()
@@ -1424,13 +1444,30 @@ class EmailStructureExtractor:
                 if not nested_message:
                     payload = part.get_payload(decode=True)
                     if isinstance(payload, bytes):
-                        from email.parser import BytesParser
-
-                        parser = BytesParser(policy=email.policy.default)
-                        nested_message = parser.parsebytes(payload)
+                        # Check for MSG magic bytes
+                        if payload.startswith(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'):
+                            self.logger.info("Detected MSG file in decoded payload")
+                            # Parse as MSG
+                            from .parsers.msg_parser import MsgFormatParser
+                            from .converters import HtmlToTextConverter
+                            from .content_normalizer import ContentNormalizer
+                            
+                            content_normalizer = ContentNormalizer(self.logger)
+                            html_converter = HtmlToTextConverter(self.logger)
+                            msg_parser = MsgFormatParser(
+                                self.logger, 
+                                content_normalizer, 
+                                html_converter, 
+                                self.content_analyzer
+                            )
+                            nested_message = msg_parser.parse(payload, filename)
+                        else:
+                            # Try parsing as EML
+                            from email.parser import BytesParser
+                            parser = BytesParser(policy=email.policy.default)
+                            nested_message = parser.parsebytes(payload)
                     elif isinstance(payload, str):
                         from email.parser import Parser
-
                         parser = Parser(policy=email.policy.default)
                         nested_message = parser.parsestr(payload)
                     else:
@@ -1443,6 +1480,8 @@ class EmailStructureExtractor:
             self.logger.error(
                 f"Streamlined: Error extracting nested email at depth {depth}: {e}"
             )
+            import traceback
+            self.logger.debug(f"Traceback: {traceback.format_exc()}")
 
         return None
 
