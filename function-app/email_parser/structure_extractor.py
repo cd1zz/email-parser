@@ -1403,10 +1403,10 @@ class EmailStructureExtractor:
                     from .parsers.msg_parser import MsgFormatParser
                     from .parsers.eml_parser import EmlFormatParser
                     from .converters import HtmlToTextConverter
-                    from .content_normalizer import ContentNormalizer
+                    from .normalizers import Utf16ContentNormalizer
                     
                     # Create necessary components
-                    content_normalizer = ContentNormalizer(self.logger)
+                    content_normalizer = Utf16ContentNormalizer(self.logger)
                     html_converter = HtmlToTextConverter(self.logger)
                     
                     # Create MSG parser
@@ -1454,9 +1454,9 @@ class EmailStructureExtractor:
                             # Parse as MSG
                             from .parsers.msg_parser import MsgFormatParser
                             from .converters import HtmlToTextConverter
-                            from .content_normalizer import ContentNormalizer
+                            from .normalizers import Utf16ContentNormalizer
                             
-                            content_normalizer = ContentNormalizer(self.logger)
+                            content_normalizer = Utf16ContentNormalizer(self.logger)
                             html_converter = HtmlToTextConverter(self.logger)
                             msg_parser = MsgFormatParser(
                                 self.logger, 
