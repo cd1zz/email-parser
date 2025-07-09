@@ -2,7 +2,7 @@
 
 import os
 from typing import Dict, Any
-from .config import config
+from .config import config as global_config
 
 
 class InputValidator:
@@ -33,7 +33,7 @@ class InputValidator:
             raise ValueError("Email data is empty")
         
         # Check file size limit
-        max_size_bytes = config.get("max_file_size_mb", config.MAX_FILE_SIZE_MB) * 1024 * 1024
+        max_size_bytes = config.get("max_file_size_mb", global_config.MAX_FILE_SIZE_MB) * 1024 * 1024
         if len(email_data) > max_size_bytes:
             raise ValueError(
                 f"Email data size ({len(email_data)} bytes) exceeds maximum allowed "
@@ -41,12 +41,12 @@ class InputValidator:
             )
         
         # Basic content validation
-        if len(email_data) < config.MIN_EMAIL_SIZE_BYTES:
+        if len(email_data) < global_config.MIN_EMAIL_SIZE_BYTES:
             raise ValueError("Email data is too small to be a valid email")
         
         # Check for potential binary corruption or invalid content
         # FIXED: Don't flag MSG files which naturally contain null bytes (OLE format)
-        if b'\x00' * config.MAX_NULL_BYTES in email_data:
+        if b'\x00' * global_config.MAX_NULL_BYTES in email_data:
             # Check if this might be a valid MSG file (OLE compound document)
             if not email_data.startswith(b'\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1'):
                 raise ValueError("Email data contains excessive null bytes (potential corruption)")
@@ -55,14 +55,14 @@ class InputValidator:
     def _validate_configuration(config: Dict[str, Any]) -> None:
         """Validate the configuration parameters."""
         # Validate timeout values
-        expansion_timeout = config.get("expansion_timeout", config.DEFAULT_EXPANSION_TIMEOUT)
-        if not isinstance(expansion_timeout, (int, float)) or expansion_timeout < config.EXPANSION_TIMEOUT_MIN or expansion_timeout > config.EXPANSION_TIMEOUT_MAX:
-            raise ValueError(f"expansion_timeout must be a number between {config.EXPANSION_TIMEOUT_MIN} and {config.EXPANSION_TIMEOUT_MAX} seconds")
+        expansion_timeout = config.get("expansion_timeout", global_config.DEFAULT_EXPANSION_TIMEOUT)
+        if not isinstance(expansion_timeout, (int, float)) or expansion_timeout < global_config.EXPANSION_TIMEOUT_MIN or expansion_timeout > global_config.EXPANSION_TIMEOUT_MAX:
+            raise ValueError(f"expansion_timeout must be a number between {global_config.EXPANSION_TIMEOUT_MIN} and {global_config.EXPANSION_TIMEOUT_MAX} seconds")
         
         # Validate document text limit
-        doc_text_limit = config.get("document_text_limit", config.DOCUMENT_TEXT_LIMIT)
-        if not isinstance(doc_text_limit, int) or doc_text_limit < config.DOCUMENT_TEXT_LIMIT_MIN:
-            raise ValueError(f"document_text_limit must be an integer >= {config.DOCUMENT_TEXT_LIMIT_MIN}")
+        doc_text_limit = config.get("document_text_limit", global_config.DOCUMENT_TEXT_LIMIT)
+        if not isinstance(doc_text_limit, int) or doc_text_limit < global_config.DOCUMENT_TEXT_LIMIT_MIN:
+            raise ValueError(f"document_text_limit must be an integer >= {global_config.DOCUMENT_TEXT_LIMIT_MIN}")
         
         # Validate boolean configuration values
         bool_configs = [
@@ -78,9 +78,9 @@ class InputValidator:
                 raise ValueError(f"{bool_config} must be a boolean value")
         
         # Validate log level
-        log_level = config.get("log_level", config.DEFAULT_LOG_LEVEL)
-        if log_level not in config.VALID_LOG_LEVELS:
-            raise ValueError(f"log_level must be one of: {config.VALID_LOG_LEVELS}")
+        log_level = config.get("log_level", global_config.DEFAULT_LOG_LEVEL)
+        if log_level not in global_config.VALID_LOG_LEVELS:
+            raise ValueError(f"log_level must be one of: {global_config.VALID_LOG_LEVELS}")
     
     @staticmethod
     def validate_content_type(content_type: str) -> None:
@@ -93,7 +93,7 @@ class InputValidator:
         Raises:
             ValueError: If content type is not supported
         """
-        supported_types = config.SUPPORTED_CONTENT_TYPES
+        supported_types = global_config.SUPPORTED_CONTENT_TYPES
         
         if not any(content_type.startswith(supported) for supported in supported_types):
             raise ValueError(
@@ -120,15 +120,15 @@ class InputValidator:
             raise ValueError("Filename contains invalid path characters")
         
         # Length check
-        if len(filename) > config.MAX_FILENAME_LENGTH:
-            raise ValueError(f"Filename is too long (max {config.MAX_FILENAME_LENGTH} characters)")
+        if len(filename) > global_config.MAX_FILENAME_LENGTH:
+            raise ValueError(f"Filename is too long (max {global_config.MAX_FILENAME_LENGTH} characters)")
         
         # Check for null bytes
         if "\x00" in filename:
             raise ValueError("Filename contains null bytes")
         
         # Warn about potentially problematic extensions
-        if any(filename.lower().endswith(ext) for ext in config.DANGEROUS_EXTENSIONS):
+        if any(filename.lower().endswith(ext) for ext in global_config.DANGEROUS_EXTENSIONS):
             raise ValueError(f"Filename has potentially dangerous extension: {filename}")
     
     @staticmethod 
