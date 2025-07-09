@@ -7,9 +7,9 @@ import sys
 import os
 from pathlib import Path
 
-# Add the parent directory to Python path so we can import email_parser
-parent_dir = Path(__file__).parent.parent.parent
-sys.path.insert(0, str(parent_dir))
+# Add the function-app directory to Python path so we can import email_parser
+function_app_dir = Path(__file__).parent.parent.parent / "function-app"
+sys.path.insert(0, str(function_app_dir))
 
 # Now import the email parser
 from email_parser import create_email_parser
@@ -22,7 +22,7 @@ def test_proofpoint_parsing(file_path=None):
     if file_path:
         email_file = Path(file_path)
     else:
-        email_file = Path(__file__).parent.parent.parent.parent / "test_emails" / "proofpoint_sample.msg"
+        email_file = Path(__file__).parent.parent.parent / "test_emails" / "proofpoint_sample.msg"
     
     if not email_file.exists():
         print(f"ERROR: Email file not found: {email_file}")

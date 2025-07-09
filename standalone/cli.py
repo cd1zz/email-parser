@@ -9,9 +9,9 @@ import sys
 import os
 from pathlib import Path
 
-# Add the parent directory to Python path so we can import email_parser
-parent_dir = Path(__file__).parent.parent
-sys.path.insert(0, str(parent_dir))
+# Add the function-app directory to Python path so we can import email_parser
+function_app_dir = Path(__file__).parent.parent / "function-app"
+sys.path.insert(0, str(function_app_dir))
 
 from email_parser import create_email_parser
 
