@@ -445,9 +445,17 @@ class DocumentTextExtractor:
             )
     
     def _extract_word_text(self, word_data: bytes) -> DocumentExtractionResult:
-        """Extract text from Word documents using python-docx and fallbacks."""
+        """Enhanced Word document text extraction with comprehensive URL detection."""
         
-        # Try python-docx for .docx files
+        # Try comprehensive ZIP-based extraction first (for .docx files)
+        try:
+            zip_result = self._extract_word_comprehensive(word_data)
+            if zip_result.success:
+                return zip_result
+        except Exception as e:
+            self.logger.debug(f"Comprehensive Word extraction failed, trying python-docx: {e}")
+        
+        # Fallback to python-docx for basic extraction
         try:
             from docx import Document
             
@@ -503,6 +511,190 @@ class DocumentTextExtractor:
         except Exception as e:
             self.logger.error(f"Error extracting text from Word document with python-docx: {e}")
             return self._extract_word_fallback(word_data)
+    
+    def _extract_word_comprehensive(self, word_data: bytes) -> DocumentExtractionResult:
+        """Comprehensive Word document extraction including ZIP analysis for URL detection."""
+        try:
+            import zipfile
+            import xml.etree.ElementTree as ET
+            from docx import Document
+            
+            # First try to process as ZIP to get comprehensive content
+            zip_content = []
+            urls_found = []
+            files_processed = []
+            
+            with zipfile.ZipFile(io.BytesIO(word_data), 'r') as zip_file:
+                self.logger.debug(f"Word document ZIP contains: {zip_file.namelist()}")
+                
+                # Process all files in the ZIP
+                for file_info in zip_file.filelist:
+                    if file_info.is_dir():
+                        continue
+                        
+                    filename = file_info.filename
+                    files_processed.append(filename)
+                    
+                    try:
+                        file_content = zip_file.read(filename)
+                        
+                        # Process different file types
+                        if filename.endswith('.xml'):
+                            text_content = self._extract_word_xml_content(file_content, filename)
+                            if text_content:
+                                zip_content.append(text_content)
+                                # Extract URLs from XML content
+                                xml_urls = self._extract_urls_from_text(text_content)
+                                urls_found.extend(xml_urls)
+                        
+                        elif filename.endswith('.rels'):
+                            # Process relationship files for hyperlinks
+                            rel_urls = self._extract_word_relationships(file_content, filename)
+                            urls_found.extend(rel_urls)
+                        
+                        elif 'afchunk' in filename.lower() and filename.endswith('.htm'):
+                            # Process afchunk HTM files - these are critical for URL extraction
+                            html_content = file_content.decode('utf-8', errors='ignore')
+                            self.logger.info(f"✓ Processing afchunk file: {filename}")
+                            zip_content.append(html_content)
+                            # Extract URLs from HTML content
+                            html_urls = self._extract_urls_from_text(html_content)
+                            urls_found.extend(html_urls)
+                        
+                        elif filename.endswith('.htm') or filename.endswith('.html'):
+                            # Process any other HTML files
+                            html_content = file_content.decode('utf-8', errors='ignore')
+                            self.logger.debug(f"Processing HTML file: {filename}")
+                            zip_content.append(html_content)
+                            html_urls = self._extract_urls_from_text(html_content)
+                            urls_found.extend(html_urls)
+                        
+                        elif filename.endswith('.txt'):
+                            # Process text files
+                            text_content = file_content.decode('utf-8', errors='ignore')
+                            zip_content.append(text_content)
+                            text_urls = self._extract_urls_from_text(text_content)
+                            urls_found.extend(text_urls)
+                    
+                    except Exception as e:
+                        self.logger.debug(f"Error processing {filename}: {e}")
+                        continue
+            
+            # Now also extract standard document content using python-docx
+            standard_content = []
+            try:
+                word_file = io.BytesIO(word_data)
+                doc = Document(word_file)
+                
+                # Extract paragraphs
+                for paragraph in doc.paragraphs:
+                    if paragraph.text.strip():
+                        standard_content.append(paragraph.text.strip())
+                
+                # Extract tables
+                for table in doc.tables:
+                    for row in table.rows:
+                        for cell in row.cells:
+                            if cell.text.strip():
+                                standard_content.append(cell.text.strip())
+                
+                # Extract hyperlinks from paragraphs
+                for paragraph in doc.paragraphs:
+                    for run in paragraph.runs:
+                        if hasattr(run, 'hyperlink') and run.hyperlink:
+                            if hasattr(run.hyperlink, 'address') and run.hyperlink.address:
+                                urls_found.append(run.hyperlink.address)
+                
+            except Exception as e:
+                self.logger.debug(f"Error with python-docx extraction: {e}")
+            
+            # Combine all content
+            all_content = zip_content + standard_content
+            final_text = "\n".join(all_content).strip()
+            
+            # Remove duplicate URLs
+            unique_urls = list(set(urls_found))
+            
+            if final_text or unique_urls:
+                self.logger.info(f"✓ Comprehensive Word extraction: {len(final_text)} chars, {len(unique_urls)} URLs from {len(files_processed)} files")
+                return DocumentExtractionResult(
+                    text_content=final_text,
+                    success=True,
+                    document_type='word',
+                    extraction_method='comprehensive_zip',
+                    metadata={
+                        'character_count': len(final_text),
+                        'urls_found': unique_urls,
+                        'url_count': len(unique_urls),
+                        'files_processed': len(files_processed),
+                        'files_list': files_processed[:10],  # First 10 files
+                        'extraction_methods': ['zip_analysis', 'python-docx', 'xml_parsing', 'html_parsing', 'relationship_parsing']
+                    }
+                )
+            else:
+                return DocumentExtractionResult(
+                    success=False,
+                    error_message="No content or URLs found in comprehensive Word analysis",
+                    document_type='word'
+                )
+                
+        except Exception as e:
+            self.logger.error(f"Error in comprehensive Word extraction: {e}")
+            return DocumentExtractionResult(
+                success=False,
+                error_message=f"Comprehensive Word extraction failed: {str(e)}",
+                document_type='word'
+            )
+    
+    def _extract_word_xml_content(self, xml_content: bytes, filename: str) -> str:
+        """Extract meaningful text from Word XML files."""
+        try:
+            # Parse XML content
+            root = ET.fromstring(xml_content)
+            
+            # Extract text from different XML elements
+            text_parts = []
+            
+            # Common Word XML text elements
+            for elem in root.iter():
+                if elem.text and elem.text.strip():
+                    # Skip XML schema URLs and common Word metadata
+                    if not self._is_schema_url(elem.text):
+                        text_parts.append(elem.text.strip())
+            
+            return " ".join(text_parts)
+            
+        except Exception as e:
+            self.logger.debug(f"Error parsing XML content from {filename}: {e}")
+            return ""
+    
+    def _extract_word_relationships(self, rels_content: bytes, filename: str) -> List[str]:
+        """Extract URLs from Word relationship files."""
+        urls = []
+        try:
+            # Parse relationships XML
+            root = ET.fromstring(rels_content)
+            
+            # Look for hyperlink relationships
+            for relationship in root.iter():
+                if relationship.tag.endswith('Relationship'):
+                    target = relationship.get('Target')
+                    rel_type = relationship.get('Type')
+                    
+                    if target and rel_type:
+                        # Check if it's a hyperlink relationship
+                        if 'hyperlink' in rel_type.lower():
+                            urls.append(target)
+                        # Also check for external relationships
+                        elif 'external' in rel_type.lower() and target.startswith('http'):
+                            urls.append(target)
+            
+            self.logger.debug(f"Found {len(urls)} URLs in relationships file {filename}")
+            return urls
+            
+        except Exception as e:
+            self.logger.debug(f"Error parsing relationships from {filename}: {e}")
+            return []
     
     def _extract_word_fallback(self, word_data: bytes) -> DocumentExtractionResult:
         """Fallback method for Word document text extraction."""
