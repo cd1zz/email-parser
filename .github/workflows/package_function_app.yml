@@ -1,0 +1,59 @@
+name: Package Azure Function App
+
+on:
+  push:
+    paths:
+      - 'function-app/**'
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies to .python_packages/lib/site-packages/
+        working-directory: function-app
+        run: |
+          mkdir -p .python_packages/lib/site-packages
+          pip install -r requirements.txt --target .python_packages/lib/site-packages
+
+      - name: Create deployment.zip outside source dir
+        run: |
+          cd function-app
+          zip -r ../deployment.zip . -x "*.git*" "*.github*" "__pycache__/*" "deployment.zip"
+
+      - name: Upload deployment.zip to GitHub Release (fixed tag)
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: function-app-latest
+          name: Release function-app-latest
+          files: deployment.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Optional: keep for future versioning if needed
+      - name: (Optional) Update WEBSITE_RUN_FROM_PACKAGE in Azure JSON
+        if: false  # set to true if re-enabling versioned URLs
+        run: |
+          sed -i 's#https://github.com/.*/deployment.zip#https://github.com/${{ github.repository }}/releases/download/function-app-latest/deployment.zip#g' function-app/functionapp_azuredeploy.json
+
+      - name: Commit updated Azure deploy JSON (optional)
+        if: false
+        run: |
+          git config user.name "github-actions"
+          git config user.email "github-actions@github.com"
+          git add function-app/functionapp_azuredeploy.json
+          git commit -m "Update WEBSITE_RUN_FROM_PACKAGE to latest"
+          git push https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }} HEAD:main
