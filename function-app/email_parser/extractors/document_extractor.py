@@ -11,6 +11,7 @@ import re
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 from shared.config import config
+from ..converters import sanitize_text_content
 
 
 @dataclass
@@ -292,13 +293,16 @@ class DocumentTextExtractor:
         if final_text or final_urls:
             success_text = final_text if final_text else "[No text content found, but URLs extracted]"
             
+            # Sanitize text content before returning
+            sanitized_text = sanitize_text_content(success_text, self.logger)
+            
             return DocumentExtractionResult(
-                text_content=success_text,
+                text_content=sanitized_text,
                 success=True,
                 document_type='excel',
                 extraction_method="+".join(extraction_methods_used) if extraction_methods_used else "comprehensive",
                 metadata={
-                    'character_count': len(final_text),
+                    'character_count': len(sanitized_text),
                     'urls_found': final_urls,
                     'url_count': len(final_urls),
                     'pandas_success': pandas_success,
@@ -410,12 +414,14 @@ class DocumentTextExtractor:
                 text = extract_text(pdf_file)
                 
                 if text and text.strip():
+                    # Sanitize PDF text content
+                    sanitized_text = sanitize_text_content(text.strip(), self.logger)
                     return DocumentExtractionResult(
-                        text_content=text.strip(),
+                        text_content=sanitized_text,
                         success=True,
                         document_type='pdf',
                         extraction_method='pdfminer',
-                        metadata={'character_count': len(text.strip())}
+                        metadata={'character_count': len(sanitized_text)}
                     )
                 else:
                     self.logger.warning("PDF contains no extractable text - likely contains scanned images or image-based content")
@@ -486,15 +492,17 @@ class DocumentTextExtractor:
             
             if text_content:
                 final_text = "\n".join(text_content).strip()
+                # Sanitize Word document text content
+                sanitized_text = sanitize_text_content(final_text, self.logger)
                 return DocumentExtractionResult(
-                    text_content=final_text,
+                    text_content=sanitized_text,
                     success=True,
                     document_type='word',
                     extraction_method='python-docx',
                     metadata={
                         'paragraph_count': paragraph_count,
                         'table_count': table_count,
-                        'character_count': len(final_text)
+                        'character_count': len(sanitized_text)
                     }
                 )
             else:
@@ -617,13 +625,15 @@ class DocumentTextExtractor:
             
             if final_text or unique_urls:
                 self.logger.info(f"✓ Comprehensive Word extraction: {len(final_text)} chars, {len(unique_urls)} URLs from {len(files_processed)} files")
+                # Sanitize comprehensive Word extraction text content
+                sanitized_text = sanitize_text_content(final_text, self.logger)
                 return DocumentExtractionResult(
-                    text_content=final_text,
+                    text_content=sanitized_text,
                     success=True,
                     document_type='word',
                     extraction_method='comprehensive_zip',
                     metadata={
-                        'character_count': len(final_text),
+                        'character_count': len(sanitized_text),
                         'urls_found': unique_urls,
                         'url_count': len(unique_urls),
                         'files_processed': len(files_processed),
@@ -715,12 +725,14 @@ class DocumentTextExtractor:
                 text = textract.process(tmp_path).decode('utf-8')
                 
                 if text and text.strip():
+                    # Sanitize textract Word document text content
+                    sanitized_text = sanitize_text_content(text.strip(), self.logger)
                     return DocumentExtractionResult(
-                        text_content=text.strip(),
+                        text_content=sanitized_text,
                         success=True,
                         document_type='word',
                         extraction_method='textract',
-                        metadata={'character_count': len(text.strip())}
+                        metadata={'character_count': len(sanitized_text)}
                     )
                 else:
                     self.logger.warning("Word document contains no extractable text - may contain only images or non-text content") 

@@ -11,7 +11,7 @@ from email.message import Message
 from datetime import datetime
 import logging
 
-from .converters import HtmlToTextConverter
+from .converters import HtmlToTextConverter, sanitize_text_content
 from .extractors.document_extractor import DocumentProcessor
 from shared.config import config
 
@@ -1221,7 +1221,9 @@ class EmailStructureExtractor:
 
         # Set body content with preference for plain text if both exist
         if plain_text and plain_text.strip():
-            body["text"] = plain_text.strip()
+            # Sanitize plain text to remove hidden Unicode characters
+            sanitized_text = sanitize_text_content(plain_text.strip(), self.logger)
+            body["text"] = sanitized_text
             self.logger.info(f"Using plain text body: {len(body['text'])} characters")
         elif html_content:
             # Convert HTML to text if no plain text available
@@ -1607,7 +1609,7 @@ class EmailStructureExtractor:
                     from .parser import EmailParser
                     from .parsers.msg_parser import MsgFormatParser
                     from .parsers.eml_parser import EmlFormatParser
-                    from .converters import HtmlToTextConverter
+                    from .converters import HtmlToTextConverter, sanitize_text_content
                     from .normalizers import Utf16ContentNormalizer
                     
                     # Create necessary components
@@ -1658,7 +1660,7 @@ class EmailStructureExtractor:
                             self.logger.info("Detected MSG file in decoded payload")
                             # Parse as MSG
                             from .parsers.msg_parser import MsgFormatParser
-                            from .converters import HtmlToTextConverter
+                            from .converters import HtmlToTextConverter, sanitize_text_content
                             from .normalizers import Utf16ContentNormalizer
                             
                             content_normalizer = Utf16ContentNormalizer(self.logger)
@@ -2078,7 +2080,7 @@ class EmailStructureExtractor:
                         effective_content_type == "text/plain"
                         and not body_info["plain_text"]
                     ):
-                        body_info["plain_text"] = raw_content.strip()
+                        body_info["plain_text"] = sanitize_text_content(raw_content.strip(), self.logger)
                         body_info["body_type"] = "plain"
                         body_info["char_count"] = len(body_info["plain_text"])
                         self.logger.debug(
@@ -2099,7 +2101,7 @@ class EmailStructureExtractor:
                                 body_info["html_content"]
                             )
                             if plain_from_html and plain_from_html.strip():
-                                body_info["plain_text"] = plain_from_html.strip()
+                                body_info["plain_text"] = sanitize_text_content(plain_from_html.strip(), self.logger)
                                 body_info["body_type"] = "html_converted"
                                 body_info["char_count"] = len(body_info["plain_text"])
                                 self.logger.debug(
@@ -2136,7 +2138,7 @@ class EmailStructureExtractor:
                         body_info["html_content"] = raw_content
                         plain_from_html = self.html_converter.convert(raw_content)
                         if plain_from_html and plain_from_html.strip():
-                            body_info["plain_text"] = plain_from_html.strip()
+                            body_info["plain_text"] = sanitize_text_content(plain_from_html.strip(), self.logger)
                             body_info["body_type"] = "html_converted"
                             body_info["char_count"] = len(body_info["plain_text"])
                     else:

@@ -181,3 +181,66 @@ class HtmlToTextConverter:
         
         self.logger.debug("Fallback conversion successful")
         return text.strip()
+
+
+def sanitize_text_content(text: str, logger: logging.Logger = None) -> str:
+    """
+    Standalone function to sanitize text content by removing invisible Unicode control characters.
+    
+    This should be used for ALL text content extracted from emails and documents to ensure
+    clean, readable output without hidden characters that can clutter analysis.
+    
+    Args:
+        text: The text content to sanitize
+        logger: Optional logger for reporting what was cleaned
+        
+    Returns:
+        Sanitized text with invisible Unicode characters removed
+    """
+    if not text:
+        return text
+    
+    # Map of problematic Unicode characters to their replacements
+    unicode_cleanup_map = {
+        # Invisible formatting characters
+        '\u034f': '',      # Combining Grapheme Joiner (invisible)
+        '\u200b': '',      # Zero Width Space
+        '\u200c': '',      # Zero Width Non-Joiner  
+        '\u200d': '',      # Zero Width Joiner
+        '\u200e': '',      # Left-to-Right Mark
+        '\u200f': '',      # Right-to-Left Mark
+        '\u2060': '',      # Word Joiner
+        '\ufeff': '',      # Zero Width No-Break Space (BOM)
+        
+        # Soft hyphens (invisible line break hints)
+        '\u00ad': '',      # Soft Hyphen
+        
+        # Replace non-breaking spaces with regular spaces
+        '\u00a0': ' ',     # Non-Breaking Space (&nbsp;)
+        '\u2007': ' ',     # Figure Space
+        '\u2009': ' ',     # Thin Space
+        '\u200a': ' ',     # Hair Space
+        '\u202f': ' ',     # Narrow No-Break Space
+        
+        # Other problematic characters
+        '\u2028': '\n',    # Line Separator -> newline
+        '\u2029': '\n\n',  # Paragraph Separator -> double newline
+    }
+    
+    # Apply character replacements
+    cleaned_text = text
+    removed_chars = []
+    
+    for unicode_char, replacement in unicode_cleanup_map.items():
+        if unicode_char in cleaned_text:
+            char_count = cleaned_text.count(unicode_char)
+            cleaned_text = cleaned_text.replace(unicode_char, replacement)
+            if char_count > 0:
+                char_name = unicodedata.name(unicode_char, f'U+{ord(unicode_char):04X}')
+                removed_chars.append(f"{char_name} ({char_count}x)")
+    
+    # Log what we cleaned up if logger provided
+    if removed_chars and logger:
+        logger.info(f"Sanitized Unicode control characters: {', '.join(removed_chars)}")
+    
+    return cleaned_text
