@@ -85,6 +85,9 @@ class HtmlToTextConverter:
             # Other problematic characters
             '\u2028': '\n',    # Line Separator -> newline
             '\u2029': '\n\n',  # Paragraph Separator -> double newline
+            
+            # Arrow characters (convert to ASCII equivalents)
+            '\u2192': '->',    # Rightward Arrow -> ASCII arrow
         }
         
         # Apply character replacements
@@ -225,6 +228,9 @@ def sanitize_text_content(text: str, logger: logging.Logger = None) -> str:
         # Other problematic characters
         '\u2028': '\n',    # Line Separator -> newline
         '\u2029': '\n\n',  # Paragraph Separator -> double newline
+        
+        # Arrow characters (convert to ASCII equivalents)
+        '\u2192': '->',    # Rightward Arrow -> ASCII arrow
     }
     
     # Apply character replacements
