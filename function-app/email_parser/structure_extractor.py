@@ -316,7 +316,7 @@ class EmailStructureExtractor:
                         "\u2717 Detected Proofpoint indicators but extraction failed"
                     )
                     structure = (
-                        self._extract_streamlined_structure(message, depth)
+                        self._extract_streamlined_structure(message, depth, verbose)
                         if not verbose
                         else self._extract_verbose_structure(message, depth)
                     )
@@ -341,10 +341,10 @@ class EmailStructureExtractor:
         if verbose:
             return self._extract_verbose_structure(message, depth)
         else:
-            return self._extract_streamlined_structure(message, depth)
+            return self._extract_streamlined_structure(message, depth, verbose)
 
     def _extract_streamlined_structure(
-        self, message: Message, depth: int = 0
+        self, message: Message, depth: int = 0, verbose: bool = False
     ) -> Dict[str, Any]:
         """Extract streamlined email structure with document processing."""
         self.logger.info(f"Extracting streamlined structure at depth {depth}")
@@ -354,7 +354,7 @@ class EmailStructureExtractor:
             # Root level includes metadata and summary
             structure = {
                 "metadata": self._build_metadata(message),
-                "email": self._build_streamlined_email(message, depth),
+                "email": self._build_streamlined_email(message, depth, verbose),
                 "summary": None,  # Will be populated after processing
                 "document_analysis": {
                     "total_documents_processed": 0,
@@ -377,18 +377,18 @@ class EmailStructureExtractor:
 
         else:
             # Nested emails don't need metadata/summary wrapper
-            structure = self._build_streamlined_email(message, depth)
+            structure = self._build_streamlined_email(message, depth, verbose)
 
         return structure
 
-    def _build_streamlined_email(self, message: Message, depth: int) -> Dict[str, Any]:
+    def _build_streamlined_email(self, message: Message, depth: int, verbose: bool = False) -> Dict[str, Any]:
         """Build streamlined email object with document processing."""
         self.logger.info(f"Building streamlined email at depth {depth}")
 
         email_obj = {
             "level": depth,
             "headers": self._extract_streamlined_headers(message),
-            "body": self._extract_streamlined_body(message),
+            "body": self._extract_streamlined_body(message, verbose),
             "attachments": [],
             "nested_emails": [],
             "urls": [],
@@ -397,7 +397,7 @@ class EmailStructureExtractor:
 
         # Process attachments and nested emails
         attachments, nested_emails = self._process_attachments_streamlined(
-            message, depth
+            message, depth, verbose
         )
         
         # Assign unique IDs to nested emails and update attachment references
@@ -562,7 +562,7 @@ class EmailStructureExtractor:
         return False
 
     def _build_streamlined_attachment(
-        self, part: Message, depth: int
+        self, part: Message, depth: int, verbose: bool = False
     ) -> Dict[str, Any]:
         """Build streamlined attachment info with document text extraction and BASE64 EMAIL DETECTION."""
 
@@ -638,7 +638,7 @@ class EmailStructureExtractor:
                 attachment["type"] = "email"  # Override type for emails
 
                 # Try to extract the nested email
-                nested_email = self._extract_nested_email_streamlined(part, depth + 1)
+                nested_email = self._extract_nested_email_streamlined(part, depth + 1, verbose)
                 if nested_email:
                     attachment["nested_email"] = nested_email
                     self.logger.info(
@@ -1125,9 +1125,9 @@ class EmailStructureExtractor:
 
         return headers
 
-    def _extract_streamlined_body(self, message: Message) -> Dict[str, Any]:
+    def _extract_streamlined_body(self, message: Message, verbose: bool = False) -> Dict[str, Any]:
         """Extract body with streamlined format - ENHANCED for better debugging."""
-        body = {"text": None, "html": None, "has_html": False}
+        body = {"text": None, "has_html": False}
 
         plain_text = None
         html_content = None
@@ -1236,11 +1236,12 @@ class EmailStructureExtractor:
 
         if html_content and html_content.strip():
             body["has_html"] = True
-            # Store truncated HTML for analysis
-            if len(html_content) > 20:
-                body["html"] = html_content[:20] + "..."
-            else:
-                body["html"] = html_content
+            # Store truncated HTML for analysis only in verbose/debug mode
+            if verbose:
+                if len(html_content) > 20:
+                    body["html"] = html_content[:20] + "..."
+                else:
+                    body["html"] = html_content
             self.logger.info(f"HTML content detected: {len(html_content)} characters")
 
         return body
@@ -1383,7 +1384,7 @@ class EmailStructureExtractor:
             "validation_notes": validation_notes,
         }
 
-    def _process_attachments_streamlined(self, message: Message, depth: int) -> tuple:
+    def _process_attachments_streamlined(self, message: Message, depth: int, verbose: bool = False) -> tuple:
         """Process attachments with streamlined format - FIXED VERSION."""
         attachments = []
         nested_emails = []
@@ -1393,7 +1394,7 @@ class EmailStructureExtractor:
             if self._detect_nested_email(message):
                 self.logger.info("Single-part message contains nested email")
                 nested_email = self._extract_nested_email_streamlined(
-                    message, depth + 1
+                    message, depth + 1, verbose
                 )
                 if nested_email:
                     nested_email["source_attachment"] = "embedded_single_part"
@@ -1414,7 +1415,7 @@ class EmailStructureExtractor:
 
             # Handle explicit attachments
             if is_attachment:
-                attachment = self._build_streamlined_attachment(part, depth)
+                attachment = self._build_streamlined_attachment(part, depth, verbose)
                 attachments.append(attachment)
 
                 # Check for nested email in attachment
@@ -1424,7 +1425,7 @@ class EmailStructureExtractor:
                     if not nested_email:
                         # Fallback: extract if not already done
                         nested_email = self._extract_nested_email_streamlined(
-                            part, depth + 1
+                            part, depth + 1, verbose
                         )
                     if nested_email:
                         nested_email["source_attachment"] = (
@@ -1435,7 +1436,7 @@ class EmailStructureExtractor:
             # Handle message/rfc822 parts (even if not marked as attachments)
             elif content_type == "message/rfc822":
                 self.logger.debug(f"Found message/rfc822 part at depth {depth}")
-                nested_email = self._extract_nested_email_streamlined(part, depth + 1)
+                nested_email = self._extract_nested_email_streamlined(part, depth + 1, verbose)
                 if nested_email:
                     nested_email["source_attachment"] = (
                         filename or f"embedded_rfc822_{len(nested_emails)}"
@@ -1447,7 +1448,7 @@ class EmailStructureExtractor:
                 self.logger.debug(
                     f"Found nested email in non-attachment part: {content_type}"
                 )
-                nested_email = self._extract_nested_email_streamlined(part, depth + 1)
+                nested_email = self._extract_nested_email_streamlined(part, depth + 1, verbose)
                 if nested_email:
                     nested_email["source_attachment"] = (
                         filename or f"embedded_email_{len(nested_emails)}"
@@ -1585,7 +1586,7 @@ class EmailStructureExtractor:
             return "other"
 
     def _extract_nested_email_streamlined(
-        self, part: Message, depth: int
+        self, part: Message, depth: int, verbose: bool = False
     ) -> Optional[Dict[str, Any]]:
         """Extract nested email with base64 and MSG support - ENHANCED for streamlined format."""
         try:
@@ -1685,7 +1686,7 @@ class EmailStructureExtractor:
                         return None
 
             if nested_message:
-                return self._build_streamlined_email(nested_message, depth)
+                return self._build_streamlined_email(nested_message, depth, verbose)
 
         except Exception as e:
             self.logger.error(

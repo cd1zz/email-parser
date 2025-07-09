@@ -70,8 +70,7 @@ class EmailParser:
             }
         
         # Extract structure with format option
-        #structure = self.structure_extractor.extract_structure(message, depth=0, verbose=verbose)
-        structure = self.structure_extractor.extract_structure(message, depth=0)
+        structure = self.structure_extractor.extract_structure(message, depth=0, verbose=verbose)
 
         
         # Build response based on format
