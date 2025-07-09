@@ -284,8 +284,8 @@ python -c "from email_parser import create_email_parser; print('OK')"
 python function-app/shared/environment_validator.py
 
 # Test specific functionality
-python debug_nested_structure.py
-python debug_url_extraction.py
+python tools/debug/debug_nested_structure.py
+python tools/debug/debug_url_extraction.py
 ```
 
 ## Development Guidelines
