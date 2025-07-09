@@ -25,6 +25,8 @@ xlrd==2.0.1
 
 # PDF text extraction - CRITICAL: Use this version to avoid Rust/DLL issues
 pdfminer.six==20211012
+# Pin cryptography to avoid GLIBC issues in Azure Functions
+cryptography==38.0.4
 
 # Word document processing
 python-docx>=0.8.11
