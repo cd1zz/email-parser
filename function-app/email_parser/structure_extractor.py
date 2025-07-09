@@ -13,6 +13,7 @@ import logging
 
 from .converters import HtmlToTextConverter
 from .extractors.document_extractor import DocumentProcessor
+from shared.config import config
 
 
 class EmailStructureExtractor:
@@ -2144,9 +2145,10 @@ class EmailStructureExtractor:
                         body_info["char_count"] = len(raw_content)
 
             # Handle HTML content truncation for output
-            if body_info["html_content"] and len(body_info["html_content"]) > 50:
+            html_preview_chars = config.HTML_PREVIEW_CHARS
+            if body_info["html_content"] and len(body_info["html_content"]) > html_preview_chars:
                 body_info["html_preview"] = (
-                    body_info["html_content"][:50]
+                    body_info["html_content"][:html_preview_chars]
                     + "... [HTML CONTENT TRUNCATED FOR BREVITY]"
                 )
                 body_info["truncated"] = True

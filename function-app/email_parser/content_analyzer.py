@@ -9,6 +9,7 @@ import re
 import struct
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional, Tuple
+from shared.config import config
 
 
 @dataclass
@@ -424,10 +425,10 @@ class ContentAnalyzer:
         encoding_info = {}
 
         try:
-            ascii_ratio = sum(1 for b in data[:1024] if 32 <= b <= 126) / min(len(data), 1024)
+            ascii_ratio = sum(1 for b in data[:config.ASCII_RATIO_CHECK_SIZE] if 32 <= b <= 126) / min(len(data), config.ASCII_RATIO_CHECK_SIZE)
             encoding_info["ascii_ratio"] = round(ascii_ratio, 3)
 
-            entropy = self._calculate_entropy(data[:4096])
+            entropy = self._calculate_entropy(data[:config.ENTROPY_CALCULATION_SIZE])
             encoding_info["entropy"] = round(entropy, 3)
 
         except Exception as e:

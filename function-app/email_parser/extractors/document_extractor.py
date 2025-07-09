@@ -10,6 +10,7 @@ import xml.etree.ElementTree as ET
 import re
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
+from shared.config import config
 
 
 @dataclass
@@ -417,9 +418,10 @@ class DocumentTextExtractor:
                         metadata={'character_count': len(text.strip())}
                     )
                 else:
+                    self.logger.warning("PDF contains no extractable text - likely contains scanned images or image-based content")
                     return DocumentExtractionResult(
                         success=False,
-                        error_message="PDF contains no extractable text",
+                        error_message="PDF contains no extractable text (likely contains scanned images or image-based content - manual inspection may be required)",
                         document_type='pdf',
                         extraction_method='pdfminer'
                     )
@@ -488,9 +490,10 @@ class DocumentTextExtractor:
                     }
                 )
             else:
+                self.logger.warning("Word document contains no extractable text - may contain only images or non-text content")
                 return DocumentExtractionResult(
                     success=False,
-                    error_message="Word document contains no extractable text",
+                    error_message="Word document contains no extractable text (may contain only images or non-text content - manual inspection may be required)",
                     document_type='word'
                 )
                 
@@ -528,9 +531,10 @@ class DocumentTextExtractor:
                         metadata={'character_count': len(text.strip())}
                     )
                 else:
+                    self.logger.warning("Word document contains no extractable text - may contain only images or non-text content") 
                     return DocumentExtractionResult(
                         success=False,
-                        error_message="Word document contains no extractable text",
+                        error_message="Word document contains no extractable text (may contain only images or non-text content - manual inspection may be required)",
                         document_type='word'
                     )
             finally:

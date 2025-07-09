@@ -8,6 +8,7 @@ import re
 import urllib.parse
 from typing import Dict, List, Set, Any, Optional
 from dataclasses import dataclass, field
+from shared.config import config
 
 
 @dataclass
@@ -36,14 +37,10 @@ class UrlExtractor:
         r'www\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*(?:/[^\s<>"{}|\\^`\[\]]*)?'
     ]
     
-    # URL shortener domains for classification
-    SHORTENER_DOMAINS = [
-        "bit.ly", "t.co", "goo.gl", "ow.ly", "tinyurl.com", "is.gd", "buff.ly",
-        "rebrandly.com", "cutt.ly", "bl.ink", "snip.ly", "su.pr", "lnkd.in",
-        "fb.me", "cli.gs", "sh.st", "mcaf.ee", "yourls.org", "v.gd", "s.id",
-        "t.ly", "tiny.cc", "qlink.me", "po.st", "short.io", "shorturl.at",
-        "aka.ms", "tr.im", "bit.do", "git.io", "adf.ly", "qr.ae", "tny.im"
-    ]
+    # URL shortener domains for classification - now from config
+    @property
+    def SHORTENER_DOMAINS(self):
+        return config.URL_SHORTENERS
     
     def __init__(self, logger: logging.Logger):
         self.logger = logger

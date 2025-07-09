@@ -15,24 +15,25 @@ from email_parser import create_email_parser
 from shared.response_builder import ResponseBuilder
 from shared.input_validator import InputValidator
 from shared.error_handler import ErrorHandler
+from shared.config import config
 
 # Configure logging for Azure Functions
 logging.basicConfig(level=logging.INFO)
 
 app = func.FunctionApp()
 
-# Configuration from environment variables with defaults
+# Configuration from centralized config
 DEFAULT_CONFIG = {
-    "log_level": os.getenv("LOG_LEVEL", "INFO"),
-    "enable_url_analysis": os.getenv("DEFAULT_ENABLE_URL_ANALYSIS", "true").lower() == "true",
-    "enable_url_expansion": os.getenv("DEFAULT_ENABLE_URL_EXPANSION", "false").lower() == "true",
-    "expansion_timeout": int(os.getenv("DEFAULT_EXPANSION_TIMEOUT", "5")),
-    "enable_document_processing": os.getenv("DEFAULT_ENABLE_DOCUMENT_PROCESSING", "true").lower() == "true",
-    "document_text_limit": int(os.getenv("DEFAULT_DOCUMENT_TEXT_LIMIT", "10000")),
-    "show_document_text": os.getenv("DEFAULT_SHOW_DOCUMENT_TEXT", "false").lower() == "true",
-    "verbose": os.getenv("DEFAULT_VERBOSE", "false").lower() == "true",
-    "max_file_size_mb": int(os.getenv("MAX_FILE_SIZE_MB", "50")),
-    "function_timeout_seconds": int(os.getenv("FUNCTION_TIMEOUT_SECONDS", "300"))
+    "log_level": config.DEFAULT_LOG_LEVEL,
+    "enable_url_analysis": config.DEFAULT_ENABLE_URL_ANALYSIS,
+    "enable_url_expansion": config.DEFAULT_ENABLE_URL_EXPANSION,
+    "expansion_timeout": config.DEFAULT_EXPANSION_TIMEOUT,
+    "enable_document_processing": config.DEFAULT_ENABLE_DOCUMENT_PROCESSING,
+    "document_text_limit": config.DOCUMENT_TEXT_LIMIT,
+    "show_document_text": config.DEFAULT_SHOW_DOCUMENT_TEXT,
+    "verbose": config.DEFAULT_VERBOSE,
+    "max_file_size_mb": config.MAX_FILE_SIZE_MB,
+    "function_timeout_seconds": config.FUNCTION_TIMEOUT_SECONDS
 }
 
 # Global parser instance (for potential reuse to reduce cold starts)

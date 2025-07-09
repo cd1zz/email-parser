@@ -22,6 +22,7 @@ import email.policy
 
 from ..interfaces import EmailFormatParser, ContentNormalizer
 from ..converters import HtmlToTextConverter
+from shared.config import config
 
 try:
     import extract_msg
@@ -128,11 +129,13 @@ class MsgFormatParser(EmailFormatParser):
             
             # Debug logging for content analysis
             if plain_content:
-                self.logger.info(f"Plain content length: {len(plain_content)} chars. First 500: {plain_content[:500]}")
+                preview_chars = config.DEBUG_PREVIEW_CHARS
+                self.logger.info(f"Plain content length: {len(plain_content)} chars. First {preview_chars}: {plain_content[:preview_chars]}")
                 self.logger.info(f"Plain content contains Proofpoint markers: {self._contains_proofpoint_markers(plain_content)}")
             
             if html_content:
-                self.logger.info(f"HTML content length: {len(html_content)} chars. First 500: {html_content[:500]}")
+                preview_chars = config.DEBUG_PREVIEW_CHARS
+                self.logger.info(f"HTML content length: {len(html_content)} chars. First {preview_chars}: {html_content[:preview_chars]}")
                 self.logger.info(f"HTML content contains Proofpoint markers: {self._contains_proofpoint_markers(html_content)}")
                 
                 # Check if HTML content contains the actual Proofpoint structure
@@ -317,8 +320,8 @@ class MsgFormatParser(EmailFormatParser):
                     
                     # Encode as base64
                     encoded_content = base64.b64encode(plain_proofpoint_content.encode('utf-8')).decode('ascii')
-                    for i in range(0, len(encoded_content), 76):
-                        lines.append(encoded_content[i:i+76])
+                    for i in range(0, len(encoded_content), config.BASE64_LINE_WRAP_LENGTH):
+                        lines.append(encoded_content[i:i+config.BASE64_LINE_WRAP_LENGTH])
                 else:
                     # Fallback to normal multipart
                     self._add_multipart_alternative(lines, plain_content, html_content)
@@ -340,8 +343,8 @@ class MsgFormatParser(EmailFormatParser):
                     
                     # Encode as base64
                     encoded_content = base64.b64encode(plain_proofpoint_content.encode('utf-8')).decode('ascii')
-                    for i in range(0, len(encoded_content), 76):
-                        lines.append(encoded_content[i:i+76])
+                    for i in range(0, len(encoded_content), config.BASE64_LINE_WRAP_LENGTH):
+                        lines.append(encoded_content[i:i+config.BASE64_LINE_WRAP_LENGTH])
                 else:
                     # Fallback to HTML
                     lines.append("Content-Type: text/html; charset=utf-8")
@@ -377,8 +380,8 @@ class MsgFormatParser(EmailFormatParser):
                     
                     # Encode as base64
                     encoded_content = base64.b64encode(plain_proofpoint_content.encode('utf-8')).decode('ascii')
-                    for i in range(0, len(encoded_content), 76):
-                        lines.append(encoded_content[i:i+76])
+                    for i in range(0, len(encoded_content), config.BASE64_LINE_WRAP_LENGTH):
+                        lines.append(encoded_content[i:i+config.BASE64_LINE_WRAP_LENGTH])
                 else:
                     # Fallback to normal multipart
                     self._add_multipart_alternative(lines, plain_content, html_content)
@@ -400,8 +403,8 @@ class MsgFormatParser(EmailFormatParser):
                     
                     # Encode as base64
                     encoded_content = base64.b64encode(plain_proofpoint_content.encode('utf-8')).decode('ascii')
-                    for i in range(0, len(encoded_content), 76):
-                        lines.append(encoded_content[i:i+76])
+                    for i in range(0, len(encoded_content), config.BASE64_LINE_WRAP_LENGTH):
+                        lines.append(encoded_content[i:i+config.BASE64_LINE_WRAP_LENGTH])
                 else:
                     # Fallback to HTML
                     lines.append("Content-Type: text/html; charset=utf-8")
@@ -430,9 +433,9 @@ class MsgFormatParser(EmailFormatParser):
             
             # Encode content as base64
             encoded_content = base64.b64encode(plain_content.encode('utf-8')).decode('ascii')
-            # Split into 76-character lines
-            for i in range(0, len(encoded_content), 76):
-                lines.append(encoded_content[i:i+76])
+            # Split into BASE64_LINE_WRAP_LENGTH-character lines
+            for i in range(0, len(encoded_content), config.BASE64_LINE_WRAP_LENGTH):
+                lines.append(encoded_content[i:i+config.BASE64_LINE_WRAP_LENGTH])
         else:
             lines.append("")
             lines.append(plain_content)
@@ -453,16 +456,16 @@ class MsgFormatParser(EmailFormatParser):
                 
                 # Encode plain text content as base64
                 encoded_content = base64.b64encode(plain_proofpoint_content.encode('utf-8')).decode('ascii')
-                # Split into 76-character lines
-                for i in range(0, len(encoded_content), 76):
-                    lines.append(encoded_content[i:i+76])
+                # Split into BASE64_LINE_WRAP_LENGTH-character lines
+                for i in range(0, len(encoded_content), config.BASE64_LINE_WRAP_LENGTH):
+                    lines.append(encoded_content[i:i+config.BASE64_LINE_WRAP_LENGTH])
             else:
                 # Fallback to original HTML
                 lines.append("Content-Transfer-Encoding: base64")
                 lines.append("")
                 encoded_content = base64.b64encode(html_content.encode('utf-8')).decode('ascii')
-                for i in range(0, len(encoded_content), 76):
-                    lines.append(encoded_content[i:i+76])
+                for i in range(0, len(encoded_content), config.BASE64_LINE_WRAP_LENGTH):
+                    lines.append(encoded_content[i:i+config.BASE64_LINE_WRAP_LENGTH])
         else:
             lines.append("")
             lines.append(html_content)
@@ -481,9 +484,9 @@ class MsgFormatParser(EmailFormatParser):
             
             # Encode content as base64
             encoded_content = base64.b64encode(content.encode('utf-8')).decode('ascii')
-            # Split into 76-character lines
-            for i in range(0, len(encoded_content), 76):
-                lines.append(encoded_content[i:i+76])
+            # Split into BASE64_LINE_WRAP_LENGTH-character lines
+            for i in range(0, len(encoded_content), config.BASE64_LINE_WRAP_LENGTH):
+                lines.append(encoded_content[i:i+config.BASE64_LINE_WRAP_LENGTH])
         else:
             lines.append("")
             lines.append(content)
@@ -544,8 +547,8 @@ class MsgFormatParser(EmailFormatParser):
                         lines.append("")
                         
                         encoded_data = base64.b64encode(attachment_data).decode('ascii')
-                        for j in range(0, len(encoded_data), 76):
-                            lines.append(encoded_data[j:j+76])
+                        for j in range(0, len(encoded_data), config.BASE64_LINE_WRAP_LENGTH):
+                            lines.append(encoded_data[j:j+config.BASE64_LINE_WRAP_LENGTH])
                     else:
                         # Regular attachment
                         lines.append(f"Content-Type: application/octet-stream")
@@ -556,8 +559,8 @@ class MsgFormatParser(EmailFormatParser):
                             lines.append("")
                             
                             encoded_data = base64.b64encode(attachment_data).decode('ascii')
-                            for j in range(0, len(encoded_data), 76):
-                                lines.append(encoded_data[j:j+76])
+                            for j in range(0, len(encoded_data), config.BASE64_LINE_WRAP_LENGTH):
+                                lines.append(encoded_data[j:j+config.BASE64_LINE_WRAP_LENGTH])
                         else:
                             lines.append("")
                             lines.append(f"[MSG Attachment: {filename}]")

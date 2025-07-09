@@ -15,6 +15,7 @@ from typing import Optional, Tuple
 from email.message import Message
 
 from ..interfaces import EmailFormatParser
+from shared.config import config
 
 
 class EmlFormatParser(EmailFormatParser):
@@ -67,7 +68,7 @@ class EmlFormatParser(EmailFormatParser):
                 return True, confidence
         
         # FIXED: Lower threshold but still try if it looks like email content
-        if header_count >= 1:
+        if header_count >= config.MIN_HEADER_COUNT:
             confidence = 0.5  # Reduced from 0.3 to 0.5 to give it a better chance
             self.logger.debug(f"EML parser found {header_count} headers, low confidence: {confidence}")
             return True, confidence

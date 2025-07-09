@@ -8,6 +8,7 @@ import time
 import urllib.parse
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
+from shared.config import config
 
 
 @dataclass
@@ -32,24 +33,22 @@ class ProcessedUrl:
 class UrlProcessor:
     """Conservative URL processor - minimal transformation, preserve original URLs."""
     
-    # URL shortener domains
-    URL_SHORTENER_PROVIDERS = [
-        "bit.ly", "t.co", "goo.gl", "ow.ly", "tinyurl.com", "is.gd", "buff.ly",
-        "rebrandly.com", "cutt.ly", "bl.ink", "snip.ly", "su.pr", "lnkd.in",
-        "fb.me", "cli.gs", "sh.st", "mcaf.ee", "yourls.org", "v.gd", "s.id",
-        "t.ly", "tiny.cc", "qlink.me", "po.st", "short.io", "shorturl.at",
-        "aka.ms", "tr.im", "bit.do", "git.io", "adf.ly", "qr.ae", "tny.im"
-    ]
+    # URL shortener domains - now from config
+    @property
+    def URL_SHORTENER_PROVIDERS(self):
+        return config.URL_SHORTENERS
     
-    # Image file extensions
-    IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.svg', '.webp', '.tiff']
+    # Image file extensions - now from config
+    @property
+    def IMAGE_EXTENSIONS(self):
+        return config.IMAGE_EXTENSIONS
     
     def __init__(self, logger: logging.Logger, enable_expansion: bool = False, 
-                 expansion_timeout: int = 5, expansion_delay: float = 0.5):
+                 expansion_timeout: float = None, expansion_delay: float = None):
         self.logger = logger
         self.enable_expansion = enable_expansion
-        self.expansion_timeout = expansion_timeout
-        self.expansion_delay = expansion_delay
+        self.expansion_timeout = expansion_timeout if expansion_timeout is not None else config.DEFAULT_EXPANSION_TIMEOUT
+        self.expansion_delay = expansion_delay if expansion_delay is not None else config.EXPANSION_DELAY
     
     def process_extracted_urls(self, url_extraction_result) -> Tuple[List[ProcessedUrl], List[str]]:
         """Process URLs and return both detailed info and final URL list."""

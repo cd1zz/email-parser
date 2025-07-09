@@ -16,6 +16,7 @@ from typing import Optional, Tuple, Dict, Any
 from email.message import Message
 import email.parser
 import email.policy
+from shared.config import config
 
 
 class ProofpointDetector:
@@ -24,40 +25,17 @@ class ProofpointDetector:
     def __init__(self, logger: logging.Logger):
         self.logger = logger
         
-        # Flexible marker patterns for different Proofpoint configurations
-        self.header_markers = [
-            "---------- Begin Email Headers ----------",
-            "Begin Email Headers",
-            "Email Headers:",
-            "Original Message Headers",
-            "-----Original Message-----",
-        ]
-        
-        self.content_markers = [
-            "---------- Begin Reported Email ----------", 
-            "---------- Begin Email ----------",
-            "Begin Reported Email",
-            "Reported Email:",
-            "Original Message:",
-            "---------- End Email Headers ----------",
-        ]
+        # Flexible marker patterns for different Proofpoint configurations from config
+        self.header_markers = [marker for marker in config.PROOFPOINT_MARKERS if "Header" in marker or "Original" in marker]
+        self.content_markers = [marker for marker in config.PROOFPOINT_MARKERS if "Reported" in marker or "End Email Headers" in marker]
 
     def is_proofpoint_email(self, message: Message) -> bool:
         """Detect if this is a Proofpoint-wrapped email with enhanced detection."""
         try:
             subject = message.get("Subject", "")
             
-            # Enhanced subject pattern detection
-            subject_indicators = [
-                "Potential Phish:",
-                "Suspicious Email:",
-                "Phishing Alert:",
-                "Security Alert:",
-                "Proofpoint",  # Added: catch test emails with "Proofpoint" in subject
-                "[ALERT]",
-                "[WARNING]",
-                "Email Security",
-            ]
+            # Enhanced subject pattern detection from config
+            subject_indicators = config.PROOFPOINT_SUBJECT_INDICATORS
             
             has_subject_indicator = any(indicator.lower() in subject.lower() for indicator in subject_indicators)
             
@@ -192,7 +170,7 @@ class ProofpointDetector:
         """Check if content looks like email content."""
         email_indicators = ["From:", "To:", "Subject:", "Date:", "Content-Type:", "@"]
         header_count = sum(1 for indicator in email_indicators if indicator in content[:1000])
-        return header_count >= 3
+        return header_count >= config.EMAIL_CONTENT_INDICATORS
 
     def _reconstruct_email(self, headers_text: str, email_content: str) -> Optional[str]:
         """Reconstruct email from headers and content."""
@@ -692,7 +670,7 @@ Content-Type: text/plain; charset=utf-8
         indicator_count = sum(1 for indicator in email_indicators if indicator.lower() in content.lower())
         
         # Should have at least 3 email indicators to be considered valid
-        is_valid = indicator_count >= 3
+        is_valid = indicator_count >= config.VALID_EMAIL_INDICATOR_COUNT
         
         self.logger.debug(f"Content validation: {indicator_count} indicators found, valid={is_valid}")
         return is_valid
