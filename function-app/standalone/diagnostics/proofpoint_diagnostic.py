@@ -8,18 +8,21 @@ import os
 from pathlib import Path
 
 # Add the parent directory to Python path so we can import email_parser
-parent_dir = Path(__file__).parent.parent
+parent_dir = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(parent_dir))
 
 # Now import the email parser
 from email_parser import create_email_parser
 import logging
 
-def test_proofpoint_parsing():
+def test_proofpoint_parsing(file_path=None):
     """Test Proofpoint email parsing with enhanced base64 detection."""
     
     # Set up the file path (use raw string or forward slashes)
-    email_file = Path(__file__).parent.parent / "test_emails" / "proofpoint_sample.eml"
+    if file_path:
+        email_file = Path(file_path)
+    else:
+        email_file = Path(__file__).parent.parent.parent.parent / "test_emails" / "proofpoint_sample.msg"
     
     if not email_file.exists():
         print(f"ERROR: Email file not found: {email_file}")
@@ -132,7 +135,8 @@ def test_proofpoint_parsing():
 
 if __name__ == "__main__":
     try:
-        success = test_proofpoint_parsing()
+        file_path = sys.argv[1] if len(sys.argv) > 1 else None
+        success = test_proofpoint_parsing(file_path)
         if success:
             print("\n✓ Diagnostic completed successfully")
         else:

@@ -4,10 +4,16 @@
 
 import argparse
 import json
-from pathlib import Path
 import logging
+import sys
+import os
+from pathlib import Path
 
-from . import create_email_parser
+# Add the parent directory to Python path so we can import email_parser
+parent_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(parent_dir))
+
+from email_parser import create_email_parser
 
 
 def main() -> None:

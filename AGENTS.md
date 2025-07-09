@@ -15,47 +15,73 @@ The email parser is a comprehensive Python library designed for cybersecurity ap
 ## Project Structure for AI Agent Navigation
 
 ```
-standalone/
-├── email_parser/
-│   ├── __init__.py                     # Factory function - AI agents start here for parser creation
-│   ├── parser.py                       # Main orchestration class - core parsing logic
-│   ├── structure_extractor.py          # Primary extraction logic with document processing
-│   ├── cli.py                          # Command-line interface - reference for user-facing features
-│   ├── content_analyzer.py             # File type detection and metadata extraction
-│   ├── converters.py                   # HTML to text conversion with Unicode cleanup
-│   ├── normalizers.py                  # Content normalization (especially UTF-16 handling)
-│   ├── interfaces.py                   # Abstract base classes - follow these for new components
-│   ├── parsers/                        # Format-specific parsers
-│   │   ├── eml_parser.py               # Standard EML email files
-│   │   ├── msg_parser.py               # Microsoft Outlook MSG files (complex)
-│   │   ├── mbox_parser.py              # MBOX format files
-│   │   └── proofpoint_detector.py      # Enhanced Proofpoint email detection/unwrapping
-│   ├── extractors/                     # Content extraction modules
-│   │   ├── url_analyzer.py             # URL analysis coordination
-│   │   ├── url_extractor.py            # URL extraction with document support
-│   │   ├── url_processor.py            # URL processing and expansion
-│   │   └── document_extractor.py       # Document text extraction (PDF, Word, Excel)
-│   └── url_processing/                 # Legacy URL processing utilities
-├── diagnostics/                        # Diagnostic and testing tools
-│   ├── excel_diagnostic.py             # Comprehensive Excel analysis tool
-│   ├── msg_diagnostic.py               # MSG file diagnostic analysis
-│   └── proofpoint_diagnostic.py        # Proofpoint email testing
-└── test_emails/                        # Sample files for testing
-
-function-app/
-├── function_app.py                    # Azure Functions HTTP app
-├── requirements.txt                   # Dependencies for the function
-├── email_parser/                      # Same parser packaged for Functions
-└── shared/                            # Request/response utilities
+email-parser/
+├── function-app/                      # Azure Functions serverless deployment
+│   ├── function_app.py               # HTTP endpoints (/email-parse, /health, /config)
+│   ├── requirements.txt              # Production dependencies
+│   ├── email_parser/                 # Core parser (identical to standalone)
+│   │   ├── __init__.py              # Factory function - AI agents start here
+│   │   ├── parser.py                # Main orchestration class
+│   │   ├── structure_extractor.py   # Core extraction logic (2,408 lines)
+│   │   ├── content_analyzer.py      # File type detection and metadata
+│   │   ├── converters.py            # HTML to text conversion
+│   │   ├── normalizers.py           # Content normalization (UTF-16 handling)
+│   │   ├── interfaces.py            # Abstract base classes
+│   │   ├── parsers/                 # Format-specific parsers
+│   │   │   ├── eml_parser.py        # Standard EML email files
+│   │   │   ├── msg_parser.py        # Microsoft Outlook MSG files
+│   │   │   ├── mbox_parser.py       # MBOX format files
+│   │   │   └── proofpoint_detector.py # Proofpoint email unwrapping
+│   │   └── extractors/              # Content extraction modules
+│   │       ├── url_analyzer.py      # URL analysis coordination
+│   │       ├── url_extractor.py     # URL extraction with document support
+│   │       ├── url_processor.py     # URL processing and expansion
+│   │       └── document_extractor.py # Document text extraction
+│   └── shared/                       # Azure Functions utilities
+│       ├── error_handler.py          # Error handling and logging
+│       ├── input_validator.py        # Request validation
+│       ├── response_builder.py       # Response formatting
+│       └── environment_validator.py  # Environment checks
+├── standalone/                        # Local CLI implementation
+│   ├── email_parser/                 # Same core parser as function-app
+│   ├── diagnostics/                  # Diagnostic and testing tools
+│   │   ├── excel_diagnostic.py      # Comprehensive Excel analysis
+│   │   ├── msg_diagnostic.py        # MSG file diagnostic analysis
+│   │   └── proofpoint_diagnostic.py # Proofpoint email testing
+│   └── cli.py                        # Command-line interface
+├── test_emails/                       # 50+ test files for validation
+│   ├── [1-9].eml/.msg               # Numbered test pairs
+│   ├── nested_msgs.eml/.msg         # Nested email chains
+│   ├── excel_*.xlsx                 # Excel samples with URLs
+│   ├── proofpoint_*.eml             # Proofpoint test cases
+│   └── pdf_*.pdf                    # PDF attachment samples
+├── tools/                            # Development and debugging utilities
+│   ├── debug/                       # Debug scripts
+│   ├── testing/                     # Test validation scripts
+│   ├── validation/                  # Result comparison tools
+│   └── examples/                    # Usage examples
+└── [analysis scripts]               # Generated analysis tools
 ```
 
 ### Key Components AI Agents Should Understand
 
-- **EmailParser**: Main orchestration class that delegates to format-specific parsers
-- **EmailStructureExtractor**: Core extraction logic with document processing support
-- **ProofpointDetector**: Critical security component for unwrapping Proofpoint emails
-- **DocumentTextExtractor**: Comprehensive document analysis (Excel URL extraction is especially complex)
-- **UrlAnalyzer**: Coordinates URL extraction across email body, attachments, and documents
+- **EmailParser** (`parser.py`): Main orchestration class with format detection and delegation
+- **EmailStructureExtractor** (`structure_extractor.py`): Core extraction logic with nested email handling
+- **ProofpointDetector** (`proofpoint_detector.py`): Critical security component for unwrapping Proofpoint emails
+- **DocumentTextExtractor** (`document_extractor.py`): Comprehensive document analysis including Excel ZIP analysis
+- **UrlAnalyzer** (`url_analyzer.py`): Coordinates URL extraction across email body, attachments, and documents
+- **MsgFormatParser** (`msg_parser.py`): Complex MSG file parsing with attachment handling
+- **ContentAnalyzer** (`content_analyzer.py`): MIME type detection and content fingerprinting
+
+### Recent Enhancements (2024)
+
+- **Proofpoint Detection**: Enhanced base64 email detection and unwrapping
+- **Document Processing**: Integrated PDF/Word/Excel text extraction with URL detection
+- **Excel URL Extraction**: Comprehensive ZIP analysis for relationship files (OneDrive links)
+- **Content Type Validation**: Improved detection of content type mismatches
+- **Structured JSON Output**: Clean output format with deduplication and summaries
+- **Nested Email IDs**: Unique ID assignment for nested email chains
+- **Base64 Email Detection**: Enhanced detection of base64-encoded nested emails
 
 ## Coding Conventions for AI Agents
 
