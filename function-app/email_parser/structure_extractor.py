@@ -1008,7 +1008,7 @@ class EmailStructureExtractor:
             from_addr = email.get("headers", {}).get("from", "")
             to_addr = email.get("headers", {}).get("to", "")
             if from_addr and to_addr:
-                forwarding_chain.append(f"{from_addr} → {to_addr}")
+                forwarding_chain.append(f"{from_addr} -> {to_addr}")
 
             # Process nested emails recursively
             for nested in email.get("nested_emails", []):
