@@ -192,8 +192,35 @@ class MsgFormatParser(EmailFormatParser):
                 self.logger.debug(f"Error getting {attr}: {e}")
     
     def _extract_plain_content(self, msg) -> Optional[str]:
-        """Extract plain text content using getSaveBody method and fallbacks."""
-        # Try getSaveBody method first (from original)
+        """Extract plain text content using multiple methods with priority on complete content."""
+        # First check if we have HTML body and no plain body - common in MSG files
+        has_plain_body = hasattr(msg, 'body') and msg.body is not None
+        has_html_body = hasattr(msg, 'htmlBody') and msg.htmlBody is not None
+        
+        # If we only have HTML (common for MSG), convert it to plain text first
+        if has_html_body and not has_plain_body:
+            try:
+                html_content = self._extract_html_content(msg)
+                if html_content:
+                    # Convert HTML to plain text
+                    plain_from_html = self.html_converter.convert(html_content)
+                    if plain_from_html and len(plain_from_html.strip()) > 10:
+                        self.logger.info(f"Extracted plain text from HTML conversion (no plain body): {len(plain_from_html)} chars")
+                        return plain_from_html
+            except Exception as e:
+                self.logger.debug(f"Error converting HTML to plain text: {e}")
+        
+        # Try body attribute if available
+        if has_plain_body:
+            try:
+                body_content = self.content_normalizer.normalize(msg.body)
+                if body_content and len(body_content.strip()) > 10:
+                    self.logger.info(f"Extracted plain text from body attribute: {len(body_content)} chars")
+                    return body_content
+            except Exception as e:
+                self.logger.debug(f"Error extracting from body attribute: {e}")
+        
+        # Try getSaveBody method as last resort
         try:
             if hasattr(msg, 'getSaveBody'):
                 save_body_bytes = msg.getSaveBody()
@@ -204,20 +231,13 @@ class MsgFormatParser(EmailFormatParser):
                     # Check if content contains header-like patterns and try to extract body
                     if self._contains_header_patterns(plain_content):
                         body_content = self._extract_body_from_formatted_content(plain_content)
-                        if body_content:
+                        if body_content and len(body_content.strip()) > 10:
                             self.logger.info(f"Extracted body content after removing headers: {len(body_content)} chars")
                             return body_content
                     
                     return plain_content
         except Exception as e:
             self.logger.debug(f"Could not extract from getSaveBody: {e}")
-        
-        # Fall back to body attribute
-        try:
-            if hasattr(msg, 'body') and msg.body:
-                return self.content_normalizer.normalize(msg.body)
-        except Exception as e:
-            self.logger.debug(f"Error extracting plain body: {e}")
         
         return None
     

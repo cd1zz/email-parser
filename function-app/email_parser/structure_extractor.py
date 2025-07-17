@@ -13,6 +13,7 @@ import logging
 
 from .converters import HtmlToTextConverter, sanitize_text_content
 from .extractors.document_extractor import DocumentProcessor
+from .forwarded_email_detector import ForwardedEmailDetector
 from shared.config import config
 
 
@@ -33,6 +34,7 @@ class EmailStructureExtractor:
         self.url_analyzer = url_analyzer
         self.document_processor = DocumentProcessor(logger, url_analyzer)
         self.enable_document_processing = enable_document_processing
+        self.forwarded_email_detector = ForwardedEmailDetector(logger)
 
     def _detect_and_process_proofpoint(self, message: Message) -> Optional[Message]:
         """
@@ -399,6 +401,45 @@ class EmailStructureExtractor:
         attachments, nested_emails = self._process_attachments_streamlined(
             message, depth, verbose
         )
+        
+        # Detect and process forwarded emails in the body
+        if email_obj["body"].get("text"):
+            forwarded_emails = self.forwarded_email_detector.extract_forwarded_emails_from_body(email_obj["body"])
+            if forwarded_emails:
+                self.logger.info(f"Found {len(forwarded_emails)} forwarded email(s) in body at depth {depth}")
+                
+                for i, fw_email in enumerate(forwarded_emails):
+                    # Convert forwarded email to standard nested email structure
+                    nested_forward = {
+                        "level": depth + 1,
+                        "headers": fw_email['headers'],
+                        "body": fw_email['body'],
+                        "attachments": [],
+                        "nested_emails": [],
+                        "urls": [],
+                        "source_type": "forwarded",
+                        "source_attachment": f"forwarded_in_body_{i}"
+                    }
+                    
+                    # Recursively check for more forwarded emails
+                    if fw_email['body'].get('text'):
+                        deeper_forwards = self.forwarded_email_detector.detect_forwarded_emails(fw_email['body']['text'])
+                        if deeper_forwards:
+                            # Process deeper forwards recursively
+                            for j, deep_fw in enumerate(deeper_forwards):
+                                deep_nested = {
+                                    "level": depth + 2,
+                                    "headers": deep_fw['headers'],
+                                    "body": deep_fw['body'],
+                                    "attachments": [],
+                                    "nested_emails": [],
+                                    "urls": [],
+                                    "source_type": "forwarded",
+                                    "source_attachment": f"forwarded_in_body_{i}_{j}"
+                                }
+                                nested_forward["nested_emails"].append(deep_nested)
+                    
+                    nested_emails.append(nested_forward)
         
         # Assign unique IDs to nested emails and update attachment references
         nested_emails = self._assign_nested_email_ids(nested_emails, depth)
@@ -1859,6 +1900,21 @@ class EmailStructureExtractor:
                         pass
 
         return email_count, attachment_count, max_depth
+    
+    def _convert_forwarded_headers_to_verbose(self, headers: Dict[str, str]) -> Dict[str, Any]:
+        """Convert forwarded email headers to verbose format."""
+        verbose_headers = {
+            "all_headers": {},
+            "header_count": len(headers)
+        }
+        
+        # Map simple headers to verbose format
+        for key, value in headers.items():
+            verbose_key = key.lower().replace("-", "_")
+            verbose_headers[verbose_key] = value
+            verbose_headers["all_headers"][verbose_key] = value
+        
+        return verbose_headers
 
 
     # Include verbose mode methods for backward compatibility...
@@ -1948,6 +2004,47 @@ class EmailStructureExtractor:
         except Exception as e:
             self.logger.error(f"Error extracting email structure: {e}")
             structure["parsing_error"] = str(e)
+
+        # Detect and process forwarded emails in the body for verbose mode
+        if structure.get("body", {}).get("plain_text"):
+            body_text = structure["body"]["plain_text"]
+            forwarded_emails = self.forwarded_email_detector.detect_forwarded_emails(body_text)
+            
+            if forwarded_emails:
+                self.logger.info(f"Verbose mode: Found {len(forwarded_emails)} forwarded email(s) in body at depth {depth}")
+                
+                for fw_email in forwarded_emails:
+                    # Convert forwarded email to verbose nested email structure
+                    nested_forward = {
+                        "type": "email",
+                        "depth": depth + 1,
+                        "headers": self._convert_forwarded_headers_to_verbose(fw_email['headers']),
+                        "content_info": {
+                            "content_type": "text/plain",
+                            "main_type": "text",
+                            "sub_type": "plain",
+                            "charset": "utf-8",
+                            "is_multipart": False,
+                            "source": "forwarded_in_body"
+                        },
+                        "body": {
+                            "plain_text": fw_email['body'].get('text', ''),
+                            "html_content": None,
+                            "body_type": "plain",
+                            "truncated": False,
+                            "char_count": len(fw_email['body'].get('text', ''))
+                        },
+                        "parts": [],
+                        "attachments": [],
+                        "nested_emails": [],
+                        "part_count": 0,
+                        "attachment_count": 0,
+                        "nested_email_count": 0,
+                        "forwarded_email": True
+                    }
+                    
+                    structure["nested_emails"].append(nested_forward)
+                    structure["nested_email_count"] += 1
 
         self.logger.info(
             f"Completed structure extraction at depth {depth}: "
