@@ -403,4 +403,6 @@ ApplicationInsights.config
 # Exclude any proprietary or confidential test data
 # test_data/confidential/
 standalone/email_parser.log
-standalone/email_parser.log
+
+# Azure Function testing script (contains function keys)
+test_azure_function.py
